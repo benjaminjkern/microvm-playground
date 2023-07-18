@@ -1,7 +1,7 @@
 # [MicroVM Playground (Click here to check it out)](https://benjaminjkern.github.io/microvm-playground)
 An interactive playground that automatically evolves MicroVMs to play a simple 2 player game. The game chosen for this simulation is a simple fighting game.
 
-In my opinion, this was a very successful experiment. I have run it overnight (10000+ generations) and ended up with bots that are very good at fighting. They learn to aim, stay on target, look ahead to where their target WILL be (as opposed to where they are currently) and in some cases, even dodge incoming attacks.
+In my opinion, this was a very successful experiment. I have run it overnight (10000+ generations) on several occasions and ended up with bots that are pretty good at fighting. They learn to aim, stay on target, look ahead to where their target WILL be (as opposed to where they are currently) and in some cases, even dodge incoming attacks.
 
 ## Controls
 - `E`: Switch graph mode (Elo scores, Kin-sorted color graph, Score-sorted color graph)
