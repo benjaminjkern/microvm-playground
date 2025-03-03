@@ -4,7 +4,7 @@ const {
     runBrain,
     mutateBrain,
     resetBrain,
-} = require("./AI");
+} = require("../modules/AI");
 
 const TESTS_TO_RUN = 100;
 

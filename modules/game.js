@@ -13,6 +13,7 @@ import {
     brainToString,
     mutateBrain,
     newBrain,
+    printBrain,
     resetBrain,
     runBrain,
 } from "./AI.js";
@@ -345,5 +346,11 @@ export const drawBots = (ctx) => {
             )
         );
         ctx.stroke();
+    }
+};
+
+export const printBrainsToConsole = () => {
+    for (const bot of bots) {
+        printBrain(bot.brain);
     }
 };

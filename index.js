@@ -1,3 +1,4 @@
+import { printBrain } from "./modules/AI.js";
 import { drawBullets, moveBullets } from "./modules/bullet.js";
 import {
     drawTemplateBar,
@@ -8,6 +9,7 @@ import {
     starterTemplates,
     newManualGame,
     backToAutoGame,
+    printBrainsToConsole,
 } from "./modules/game.js";
 import { initGraphs, switchShowingGraph } from "./modules/graph.js";
 import { drawEloInfo } from "./modules/info.js";
@@ -103,11 +105,14 @@ const draw = () => {
     drawBullets(ctx);
 };
 
+window.onclick = () => {
+    printBrainsToConsole();
+};
+
 window.onresize = () => {
     draw(ctx);
 };
 
-window.onclick = () => {};
 window.onkeydown = (e) => {
     if (e.key === "p") {
         if (!togglePause()) startLoop();

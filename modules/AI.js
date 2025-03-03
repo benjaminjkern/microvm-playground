@@ -9,7 +9,8 @@ import { randomGaussian } from "./utils.js";
  * The default refers to an io space, a data space, and the number of instructions to include.
  */
 const DEFAULT_SIZES = {
-    IOSIZE: 16,
+    INPUTSIZE: 16,
+    OUTPUTSIZE: 16,
     DATASIZE: 32,
     INSTRUCTIONS: 32,
 };
@@ -51,6 +52,70 @@ const DEFAULT_OPERATIONS = {
             },
         argSizes: ["DATASIZE", "DATASIZE", "DATASIZE"],
     },
+    exp: {
+        run:
+            ([x, y, p]) =>
+            (brain) => {
+                brain.data[p] = brain.data[x] ** brain.data[y];
+            },
+        argSizes: ["DATASIZE", "DATASIZE", "DATASIZE"],
+    },
+    neg: {
+        run:
+            ([x, p]) =>
+            (brain) => {
+                brain.data[p] = -brain.data[x];
+            },
+        argSizes: ["DATASIZE", "DATASIZE"],
+    },
+    sqrt: {
+        run:
+            ([x, p]) =>
+            (brain) => {
+                brain.data[p] = Math.sqrt(brain.data[x]);
+            },
+        argSizes: ["DATASIZE", "DATASIZE"],
+    },
+    sin: {
+        run:
+            ([x, p]) =>
+            (brain) => {
+                brain.data[p] = Math.sin(brain.data[x]);
+            },
+        argSizes: ["DATASIZE", "DATASIZE"],
+    },
+    cos: {
+        run:
+            ([x, p]) =>
+            (brain) => {
+                brain.data[p] = Math.cos(brain.data[x]);
+            },
+        argSizes: ["DATASIZE", "DATASIZE"],
+    },
+    log: {
+        run:
+            ([x, p]) =>
+            (brain) => {
+                brain.data[p] = Math.log(brain.data[x]);
+            },
+        argSizes: ["DATASIZE", "DATASIZE"],
+    },
+    floor: {
+        run:
+            ([x, p]) =>
+            (brain) => {
+                brain.data[p] = Math.floor(brain.data[x]);
+            },
+        argSizes: ["DATASIZE", "DATASIZE"],
+    },
+    ceil: {
+        run:
+            ([x, p]) =>
+            (brain) => {
+                brain.data[p] = Math.ceil(brain.data[x]);
+            },
+        argSizes: ["DATASIZE", "DATASIZE"],
+    },
     min: {
         run:
             ([x, y, p]) =>
@@ -67,14 +132,6 @@ const DEFAULT_OPERATIONS = {
             },
         argSizes: ["DATASIZE", "DATASIZE", "DATASIZE"],
     },
-    neg: {
-        run:
-            ([x, p]) =>
-            (brain) => {
-                brain.data[p] = -brain.data[x];
-            },
-        argSizes: ["DATASIZE", "DATASIZE"],
-    },
     jump: {
         run:
             ([i]) =>
@@ -87,9 +144,33 @@ const DEFAULT_OPERATIONS = {
         run:
             ([x, i]) =>
             (brain) => {
-                if (brain.data[x] >= 0) brain.instructionPointer = i - 1;
+                if (brain.data[x] > 0) brain.instructionPointer = i - 1;
             },
         argSizes: ["DATASIZE", "INSTRUCTIONS"],
+    },
+    set0: {
+        run:
+            ([x]) =>
+            (brain) => {
+                brain.data[x] = 0;
+            },
+        argSizes: ["DATASIZE"],
+    },
+    set1: {
+        run:
+            ([x]) =>
+            (brain) => {
+                brain.data[x] = 1;
+            },
+        argSizes: ["DATASIZE"],
+    },
+    setrandom: {
+        run:
+            ([x]) =>
+            (brain) => {
+                brain.data[x] = Math.random();
+            },
+        argSizes: ["DATASIZE"],
     },
     move: {
         run:
@@ -105,15 +186,7 @@ const DEFAULT_OPERATIONS = {
             (brain) => {
                 brain.data[p] = brain.inputData[q];
             },
-        argSizes: ["IOSIZE", "DATASIZE"],
-    },
-    readOutput: {
-        run:
-            ([q, p]) =>
-            (brain) => {
-                brain.data[p] = brain.outputData[q];
-            },
-        argSizes: ["IOSIZE", "DATASIZE"],
+        argSizes: ["INPUTSIZE", "DATASIZE"],
     },
     writeOutput: {
         run:
@@ -121,25 +194,13 @@ const DEFAULT_OPERATIONS = {
             (brain) => {
                 brain.outputData[q] = brain.data[p];
             },
-        argSizes: ["DATASIZE", "IOSIZE"],
+        argSizes: ["DATASIZE", "OUTPUTSIZE"],
     },
-    // constant: {
-    //     run:
-    //         ([p]) =>
-    //         (brain) => {
-    //             brain.data[p] = 1;
-    //         },
-    //     argSizes: ["DATASIZE"],
-    // },
-    /// This is an example function that I didn't want to include because it was bogging down my console
-    // print: {
-    //     run:
-    //         ([x]) =>
-    //         (brain) => {
-    //             console.log(brain.data[x]);
-    //         },
-    //     argSizes: ["DATASIZE"],
-    // },
+    halt: {
+        run: () => () => ({
+            halt: true,
+        }),
+    },
 };
 
 /**
@@ -154,7 +215,7 @@ const randomInstruction = (sizes, operations) => {
     const opName = opNames[Math.floor(Math.random() * opNames.length)];
     const operation = operations[opName];
 
-    const args = operation.argSizes.map((size) =>
+    const args = (operation.argSizes ?? []).map((size) =>
         Math.floor(Math.random() * sizes[size])
     );
 
@@ -195,7 +256,7 @@ export const newBrainFromString = (brainString, operations = {}) => {
         startData,
         startOutputData,
 
-        inputData: Array(newSizes["IOSIZE"]).fill(0),
+        inputData: Array(newSizes["INPUTSIZE"]).fill(0),
         data: [...startData],
         outputData: [...startOutputData],
         instructionPointer: 0,
@@ -213,7 +274,7 @@ export const newBrain = (sizes = {}, operations = {}) => {
     const newOperations = { ...DEFAULT_OPERATIONS, ...operations };
 
     const startData = Array(newSizes["DATASIZE"]).fill().map(randomGaussian);
-    const startOutputData = Array(newSizes["IOSIZE"])
+    const startOutputData = Array(newSizes["OUTPUTSIZE"])
         .fill()
         .map(randomGaussian);
 
@@ -227,7 +288,7 @@ export const newBrain = (sizes = {}, operations = {}) => {
         startData,
         startOutputData,
 
-        inputData: Array(newSizes["IOSIZE"]).fill(0),
+        inputData: Array(newSizes["INPUTSIZE"]).fill(0),
         data: [...startData],
         outputData: [...startOutputData],
         instructionPointer: 0,
@@ -268,7 +329,7 @@ export const mutateBrain = (
  * @param {Brain} brain The brain to reset
  */
 export const resetBrain = (brain) => {
-    brain.inputData = Array(brain.sizes["IOSIZE"]).fill(0);
+    brain.inputData = Array(brain.sizes["INPUTSIZE"]).fill(0);
     brain.data = [...brain.startData];
     brain.outputData = [...brain.startOutputData];
     brain.instructionPointer = 0;
@@ -281,9 +342,10 @@ export const resetBrain = (brain) => {
  */
 export const runBrain = (brain, steps = 1) => {
     for (let s = 0; s < steps; s++) {
-        brain.instructions[brain.instructionPointer].run(brain);
+        const result = brain.instructions[brain.instructionPointer].run(brain);
         brain.instructionPointer =
             (brain.instructionPointer + 1) % brain.sizes["INSTRUCTIONS"];
+        if (typeof result === "object" && result.halt) break;
     }
 };
 
@@ -295,46 +357,52 @@ export const runBrain = (brain, steps = 1) => {
  * - The output data. (Bottom right)
  * @param {Brain} brain The brain to print
  */
-export const printBrain = (brain) => {
-    process.stdout.cursorTo(0, 0);
-    process.stdout.clearScreenDown();
+export const printBrain = (brain, asStart = true, columns = 4) => {
+    if (typeof process !== "undefined" && process) {
+        process.stdout.cursorTo(0, 0);
+        process.stdout.clearScreenDown();
+    }
     // process.stdout.moveTo(0);
     // process.stdout.clearScreenDown();
-    for (let i = 0; i < brain.sizes["DATASIZE"]; i += 2) {
-        console.log(
-            colorit(
-                i === brain.instructionPointer,
-                fillToSpace(
-                    `${i}: ` +
-                        [
-                            brain.instructions[i].opName,
-                            ...brain.instructions[i].args,
-                        ].join(" ")
-                )
-            ),
-            colorit(
-                i + 1 === brain.instructionPointer,
-                fillToSpace(
-                    `${i + 1}: ` +
-                        [
-                            brain.instructions[i + 1].opName,
-                            ...brain.instructions[i + 1].args,
-                        ].join(" ")
-                )
-            ),
-            "|",
-            fillToSpace(`${i}: ` + brain.data[i]),
-            fillToSpace(`${i + 1}: ` + brain.data[i + 1])
-        );
-    }
+    printInColumns(brain.instructions, columns, (x) =>
+        [x.opName, ...x.args].join(" ")
+    );
     console.log("");
-    for (let i = 0; i < brain.sizes["IOSIZE"]; i += 2) {
+    printInColumns(brain.startOutputData, columns);
+    console.log("");
+    printInColumns(brain.startData, columns);
+    console.log("");
+    // for (let i = 0; i < brain.sizes["IOSIZE"]; i += 2) {
+    //     console.log(
+    //         fillToSpace(`${i}: ` + brain.inputData[i]),
+    //         fillToSpace(`${i + 1}: ` + brain.inputData[i + 1]),
+    //         "|",
+    //         fillToSpace(`${i}: ` + brain.outputData[i]),
+    //         fillToSpace(`${i + 1}: ` + brain.outputData[i + 1])
+    //     );
+    // }
+};
+
+const printInColumns = (
+    array,
+    columns,
+    arrayLength = array.length,
+    mapFunc
+) => {
+    const columnSize = Math.ceil(arrayLength / columns);
+    for (let i = 0; i < columnSize; i += 1) {
         console.log(
-            fillToSpace(`${i}: ` + brain.inputData[i]),
-            fillToSpace(`${i + 1}: ` + brain.inputData[i + 1]),
-            "|",
-            fillToSpace(`${i}: ` + brain.outputData[i]),
-            fillToSpace(`${i + 1}: ` + brain.outputData[i + 1])
+            Array(columns)
+                .fill()
+                .map((_, j) => {
+                    const index = i + j * columnSize;
+                    if (index >= arrayLength) return "";
+                    return fillToSpace(
+                        `${index}: ` +
+                            (mapFunc ? mapFunc(array[index]) : array[index])
+                    );
+                })
+                .join("")
         );
     }
 };
@@ -349,7 +417,8 @@ const fillToSpace = (string, length = 28) => {
 };
 
 const colorit = (hascolor, string) => {
-    if (hascolor) return `\x1b[43m${string}\x1b[0m`;
+    if (hascolor) return `*${string}`;
+    // return `\x1b[43m${string}\x1b[0m`;
     return string;
 };
 
