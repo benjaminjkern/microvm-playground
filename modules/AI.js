@@ -404,6 +404,8 @@ export const STRUCTURAL_MUTATIONS = {
  * @param {Number} structureMutationRate Probability that the child also gets one structural change,
  *      picked at random from `STRUCTURAL_MUTATIONS`: insert, duplicate or remove an instruction or a data cell.
  *      Arguments that refer to moved instructions or cells are rewritten so they keep pointing at the same thing.
+ * @param {Number} dataRoundingRate Probability that one start-data cell is rounded to the nearest integer,
+ *      so exact integer constants are reachable without being built out of set1 and add.
  * @returns {Brain} A brand new mutated brain, ready to run.
  */
 export const mutateBrain = (
@@ -411,6 +413,7 @@ export const mutateBrain = (
     dataMutationRate = 0.1,
     instructionMutationRate = 0.1,
     structureMutationRate = 0.1,
+    dataRoundingRate = 0.1,
 ) => {
     const child = {
         instructions: brain.instructions.map((ins) =>
@@ -427,6 +430,11 @@ export const mutateBrain = (
             (d) => d + dataMutationRate * randomGaussian(),
         ),
     };
+
+    if (Math.random() < dataRoundingRate) {
+        const i = Math.floor(Math.random() * child.startData.length);
+        child.startData[i] = Math.round(child.startData[i]);
+    }
 
     if (Math.random() < structureMutationRate) {
         const names = Object.keys(STRUCTURAL_MUTATIONS);
@@ -559,4 +567,4 @@ export const brainToString = (brain) => {
     )}`;
 };
 
-export { traceBrain } from "./trace.js";
+export { traceBrain, createInput } from "./trace.js";

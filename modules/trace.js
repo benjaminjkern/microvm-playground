@@ -111,8 +111,14 @@ const renderTrace = (view) => {
     );
 };
 
-// Keypress input in a terminal (raw mode); line input when stdin is piped. null means EOF/Ctrl-C.
-const createInput = (readline) => {
+/**
+ * Keyboard input (Node only). In a terminal it delivers raw keypresses as { str, name }; when stdin is
+ * piped it delivers one line per command as a string. `next()` resolves to the next one, or null on
+ * EOF or Ctrl-C. `pending()` says whether something is already waiting, so a running loop can poll it.
+ * One of these can be shared between an evolution loop and `traceBrain` via its `input` option.
+ */
+export const createInput = async () => {
+    const readline = (await import("node:readline")).default;
     const queue = [];
     const waiting = [];
     let closed = false;
@@ -196,6 +202,7 @@ const readLine = async (input, view, promptText) => {
  * @param {Number} [options.steps=100] Steps per run. Should match how the brain is scored.
  * @param {Number} [options.inputIndex=0] Input slot that receives x.
  * @param {Number} [options.outputIndex=0] Output slot treated as the answer.
+ * @param {Object} [options.input] An input from `createInput` to share; the caller then owns closing it.
  */
 export const traceBrain = async (brain, options = {}) => {
     const opts = {
@@ -205,8 +212,8 @@ export const traceBrain = async (brain, options = {}) => {
         outputIndex: 0,
         ...options,
     };
-    const readline = (await import("node:readline")).default;
-    const input = createInput(readline);
+    const ownsInput = !opts.input;
+    const input = opts.input ?? (await createInput());
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     const restore = () => process.stdout.write(ANSI.showCursor);
     process.on("exit", restore);
@@ -303,7 +310,7 @@ export const traceBrain = async (brain, options = {}) => {
             }
         }
     } finally {
-        input.close();
+        if (ownsInput) input.close();
         restore();
         process.stdout.write("\n");
     }
