@@ -8,6 +8,7 @@ const {
     traceBrain,
     createInput,
     brainToString,
+    crossoverBrains,
 } = require("../modules/AI");
 
 const TESTS_TO_RUN = 100;
@@ -21,6 +22,15 @@ const STEP_PENALTY = 0.001;
 const POPULATION = 50;
 // Purely random brains added to every generation's pool, before scoring, as fresh blood.
 const RANDOM_SEEDS_PER_GENERATION = 1;
+// Survival odds by rank in the scored pool: the best brain always survives, the worst survives
+// WORST_SURVIVAL of the time, and the odds fall off smoothly in between. A straight line from 100% to
+// 3% would average 51.5% and keep more than half, so the line is bent just enough (solved each
+// generation) that the odds add up to exactly POPULATION. Survivors are then drawn with exactly those
+// odds; see selectSurvivors.
+const WORST_SURVIVAL = 0.03;
+// Fraction of children that start as a cross of their parent with a random other survivor before the
+// usual mutation; the rest are mutated copies of one parent. 0 turns crossover off.
+const CROSSOVER_RATE = 0.5;
 
 const error = (expected, result) => {
     if (!Number.isFinite(result)) return Number.MAX_SAFE_INTEGER;
@@ -31,7 +41,7 @@ const RANGE = 10;
 
 const sampleInput = () => RANGE * (Math.random() * 2 - 1);
 
-const f = (x) => x ** 2 - 4 * x + 1;
+const f = (x) => x ** 2 - 2 * x + 1;
 
 // const f = (x) => x ** 2;
 
@@ -66,7 +76,52 @@ const describe = (brain) =>
     `${brain.score.toPrecision(6)} (error ${brain.targetError.toPrecision(6)}, ${brain.sizes.INSTRUCTIONS} instructions, ${brain.sizes.DATASIZE} data, ${brain.averageSteps.toPrecision(4)} steps)`;
 
 // A key from the shared input: one character in a terminal, a whole line when stdin is piped.
-const keyOf = (k) => (k === null ? "q" : typeof k === "string" ? k.trim() : k.str);
+const keyOf = (k) =>
+    k === null ? "q" : typeof k === "string" ? k.trim() : k.str;
+
+// odds[i] = WORST_SURVIVAL + (1 - WORST_SURVIVAL) * (1 - i / (n - 1)) ** gamma, with gamma found by
+// bisection so the odds sum to exactly `count` (the sum falls as gamma rises).
+const survivalOdds = (n, count) => {
+    if (count >= n) return Array(n).fill(1);
+    const odds = (gamma) =>
+        Array.from(
+            { length: n },
+            (_, i) =>
+                WORST_SURVIVAL +
+                (1 - WORST_SURVIVAL) * (1 - i / (n - 1)) ** gamma,
+        );
+    let lo = 0;
+    let hi = 64;
+    for (let k = 0; k < 60; k++) {
+        const mid = (lo + hi) / 2;
+        if (odds(mid).reduce((a, b) => a + b, 0) > count) lo = mid;
+        else hi = mid;
+    }
+    return odds((lo + hi) / 2);
+};
+
+// Stochastic cut with exact odds: lay the odds end to end and take every brain whose stretch contains
+// one of the evenly spaced points u, u+1, u+2, ... (systematic sampling). Each brain survives with
+// exactly its odds, and exactly `count` survive because the odds sum to `count`.
+const selectSurvivors = (sorted, count) => {
+    const odds = survivalOdds(sorted.length, count);
+    const survivors = [];
+    let cumulative = 0;
+    let point = Math.random();
+    sorted.forEach((brain, i) => {
+        cumulative += odds[i];
+        if (cumulative > point) {
+            survivors.push(brain);
+            point += 1;
+        }
+    });
+    // floating-point slack can leave one short; top up with the best brain not yet taken
+    for (const brain of sorted) {
+        if (survivors.length >= count) break;
+        if (!survivors.includes(brain)) survivors.push(brain);
+    }
+    return survivors.sort((a, b) => a.score - b.score);
+};
 
 const runEntireTest = async (
     dataMutationRate,
@@ -86,23 +141,32 @@ const runEntireTest = async (
         "Keys: r = throw the population away and restart, p = stop and play with the current best, s = show the current best, q = quit",
     );
     evolve: while (true) {
-        brains.map((brain) => {
-            brains.push(
-                mutateBrain(
-                    brain,
-                    dataMutationRate,
-                    instructionMutationRate,
-                    structureMutationRate,
-                    dataRoundingRate,
-                ),
+        // Each survivor gets one child: a mutated copy of itself or, CROSSOVER_RATE of the time, a
+        // mutated cross of itself with a random other survivor.
+        const survivors = brains;
+        const children = survivors.map((brain) => {
+            const mate =
+                survivors[Math.floor(Math.random() * survivors.length)];
+            const parent =
+                Math.random() < CROSSOVER_RATE
+                    ? crossoverBrains(brain, mate)
+                    : brain;
+            return mutateBrain(
+                parent,
+                dataMutationRate,
+                instructionMutationRate,
+                structureMutationRate,
+                dataRoundingRate,
             );
         });
-
-        brains.push(...freshBrains(RANDOM_SEEDS_PER_GENERATION));
+        brains = survivors.concat(
+            children,
+            freshBrains(RANDOM_SEEDS_PER_GENERATION),
+        );
 
         brains.map(testBrain);
         brains.sort((a, b) => a.score - b.score);
-        brains = brains.slice(0, POPULATION);
+        brains = selectSurvivors(brains, POPULATION);
 
         if (t % 100 === 0)
             console.log(`[run ${run}, gen ${t}] ${describe(brains[0])}`);
@@ -131,7 +195,12 @@ const runEntireTest = async (
     console.log(
         `Stopped in run ${run} after ${t} generations: ${describe(brains[0])}`,
     );
-    await traceBrain(brains[0], { target: f, error, steps: STEPS_PER_RUN, input });
+    await traceBrain(brains[0], {
+        target: f,
+        error,
+        steps: STEPS_PER_RUN,
+        input,
+    });
     input.close();
 };
 

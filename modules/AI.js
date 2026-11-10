@@ -451,6 +451,47 @@ export const mutateBrain = (
 };
 
 /**
+ * Homologous uniform crossover: a child that takes each instruction and each start-data (and output)
+ * value from one parent or the other at the same index, chosen at random per index. The child's lengths
+ * are copied from one parent at random; where only one parent is long enough, that parent supplies the
+ * tail. Any instruction or data reference that lands past the child's length is wrapped so it stays
+ * valid. Neither parent is modified, and the child is not mutated; pass it to `mutateBrain` for that.
+ * @param {Brain} a
+ * @param {Brain} b A brain with the same operations and input/output sizes.
+ * @returns {Brain} A brand new brain, ready to run.
+ */
+export const crossoverBrains = (a, b) => {
+    const parents = [a, b];
+    const lengthSource = parents[Math.floor(Math.random() * 2)];
+    const fromEither = (field, length, copy) =>
+        Array.from({ length }, (_, i) => {
+            const able = parents.filter((p) => i < p[field].length);
+            return copy(able[Math.floor(Math.random() * able.length)][field][i]);
+        });
+    const child = {
+        instructions: fromEither(
+            "instructions",
+            lengthSource.instructions.length,
+            copyInstruction,
+        ),
+        sizes: { ...lengthSource.sizes },
+        operations: a.operations,
+        startData: fromEither("startData", lengthSource.startData.length, (d) => d),
+        startOutputData: fromEither(
+            "startOutputData",
+            lengthSource.startOutputData.length,
+            (d) => d,
+        ),
+    };
+    child.sizes.INSTRUCTIONS = child.instructions.length;
+    child.sizes.DATASIZE = child.startData.length;
+    remapReferences(child, "INSTRUCTIONS", (i) => i % child.sizes.INSTRUCTIONS);
+    remapReferences(child, "DATASIZE", (i) => i % child.sizes.DATASIZE);
+    resetBrain(child);
+    return child;
+};
+
+/**
  * Reset a brain back to "factory" settings, as if it was just created.
  * Specifically, this sets all input data to be 0, and all start and output data to be how they were when the brain was created.
  * @param {Brain} brain The brain to reset
