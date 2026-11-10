@@ -8,11 +8,14 @@ import { randomGaussian } from "./utils.js";
  *
  * The default refers to an io space, a data space, and the number of instructions to include.
  */
+
+const MAX_INSTRUCTIONS = 32;
+const MAX_DATASIZE = 32;
 const DEFAULT_SIZES = {
     INPUTSIZE: 16,
     OUTPUTSIZE: 16,
     DATASIZE: 32,
-    INSTRUCTIONS: 32,
+    INSTRUCTIONS: MAX_INSTRUCTIONS,
 };
 
 /**
@@ -216,19 +219,28 @@ const randomInstruction = (sizes, operations) => {
     const operation = operations[opName];
 
     const args = (operation.argSizes ?? []).map((size) =>
-        Math.floor(Math.random() * sizes[size])
+        Math.floor(Math.random() * sizes[size]),
     );
 
     return { run: operation.run(args), opName, args };
 };
 
-export const newBrainFromString = (brainString, operations = {}) => {
+/**
+ * Rebuild a brain from the output of `brainToString`.
+ * The string carries no input size, so INPUTSIZE defaults to `DEFAULT_SIZES.INPUTSIZE` unless given in `sizes`.
+ * @param {String} brainString Output of `brainToString`.
+ * @param {Object} operations Optional operations to add to or overwrite the defaults.
+ * @param {Object} sizes Optional sizes, e.g. { INPUTSIZE: 1 }. Output, data and instruction sizes come from the string.
+ */
+export const newBrainFromString = (brainString, operations = {}, sizes = {}) => {
     const [instructions, startData, startOutputData] = brainString
         .split("\n")
         .map((line) => line.split(","));
 
     const newSizes = {
-        IOSIZE: startOutputData.length,
+        INPUTSIZE: DEFAULT_SIZES.INPUTSIZE,
+        ...sizes,
+        OUTPUTSIZE: startOutputData.length,
         DATASIZE: startData.length,
         INSTRUCTIONS: instructions.length,
     };
@@ -295,32 +307,139 @@ export const newBrain = (sizes = {}, operations = {}) => {
     };
 };
 
+const copyInstruction = (ins) => ({
+    opName: ins.opName,
+    args: [...ins.args],
+    run: ins.run,
+});
+
 /**
- * Take in an existing brain, and mutate all of the parameters and operations slightly.
+ * Rewrite every instruction argument of one kind ("INSTRUCTIONS" or "DATASIZE") through `mapIndex`,
+ * then rebuild each `run` closure, since `run` captured the old arguments when the instruction was created.
+ */
+const remapReferences = (brain, sizeName, mapIndex) => {
+    brain.instructions = brain.instructions.map(({ opName, args }) => {
+        const operation = brain.operations[opName];
+        const argSizes = operation.argSizes ?? [];
+        const newArgs = args.map((a, i) =>
+            argSizes[i] === sizeName ? mapIndex(a) : a,
+        );
+        return { opName, args: newArgs, run: operation.run(newArgs) };
+    });
+};
+
+// Index maps for a structural change at position k.
+// Insert: references keep pointing at the element they pointed at before.
+// Duplicate: references to k are split at random between the two copies.
+// Remove: references to k go to the neighbour that slides into its slot (or the new last element).
+const afterInsert = (k) => (i) => (i < k ? i : i + 1);
+const afterDuplicate = (k) => (i) =>
+    i < k ? i : i > k ? i + 1 : k + Math.floor(Math.random() * 2);
+const afterRemove = (k, newLength) => (i) =>
+    i < k ? i : i > k ? i - 1 : Math.min(k, newLength - 1);
+
+/**
+ * Structural mutations. Each changes the brain in place: the array, its size, and every instruction
+ * argument that refers to a moved element. `k` is the position to act on (for inserts it may equal the
+ * current length, meaning append). Each returns whether it applied; size limits can refuse it.
+ */
+export const STRUCTURAL_MUTATIONS = {
+    insertInstruction: (brain, k) => {
+        if (brain.instructions.length >= MAX_INSTRUCTIONS) return false;
+        brain.instructions.splice(
+            k,
+            0,
+            randomInstruction(brain.sizes, brain.operations),
+        );
+        brain.sizes.INSTRUCTIONS = brain.instructions.length;
+        remapReferences(brain, "INSTRUCTIONS", afterInsert(k));
+        return true;
+    },
+    duplicateInstruction: (brain, k) => {
+        if (brain.instructions.length >= MAX_INSTRUCTIONS) return false;
+        brain.instructions.splice(k, 0, copyInstruction(brain.instructions[k]));
+        brain.sizes.INSTRUCTIONS = brain.instructions.length;
+        remapReferences(brain, "INSTRUCTIONS", afterDuplicate(k));
+        return true;
+    },
+    removeInstruction: (brain, k) => {
+        if (brain.instructions.length <= 1) return false;
+        brain.instructions.splice(k, 1);
+        brain.sizes.INSTRUCTIONS = brain.instructions.length;
+        remapReferences(
+            brain,
+            "INSTRUCTIONS",
+            afterRemove(k, brain.instructions.length),
+        );
+        return true;
+    },
+    insertData: (brain, k) => {
+        if (brain.startData.length >= MAX_DATASIZE) return false;
+        brain.startData.splice(k, 0, randomGaussian());
+        brain.sizes.DATASIZE = brain.startData.length;
+        remapReferences(brain, "DATASIZE", afterInsert(k));
+        return true;
+    },
+    duplicateData: (brain, k) => {
+        if (brain.startData.length >= MAX_DATASIZE) return false;
+        brain.startData.splice(k, 0, brain.startData[k]);
+        brain.sizes.DATASIZE = brain.startData.length;
+        remapReferences(brain, "DATASIZE", afterDuplicate(k));
+        return true;
+    },
+    removeData: (brain, k) => {
+        if (brain.startData.length <= 1) return false;
+        brain.startData.splice(k, 1);
+        brain.sizes.DATASIZE = brain.startData.length;
+        remapReferences(brain, "DATASIZE", afterRemove(k, brain.startData.length));
+        return true;
+    },
+};
+
+/**
+ * Take in an existing brain and return a mutated copy. The parent is never modified.
  * @param {Brain} brain
- * @param {Number} dataMutationRate The rate at which to mutate data. Note: This acts differently upon instructions than it does with data.
- *      This is used to change the old values by adding new gaussian values, scaled by this mutation rate.
- * @param {Number} instructionMutationRate The rate at which to mutate instructions.
- *      This is used to randomly permutate between the old instruction and a random new instruction, with a probability of this mutation rate.
+ * @param {Number} dataMutationRate Every start and output value gets a gaussian nudge scaled by this.
+ * @param {Number} instructionMutationRate Probability that each instruction is replaced by a random one.
+ * @param {Number} structureMutationRate Probability that the child also gets one structural change,
+ *      picked at random from `STRUCTURAL_MUTATIONS`: insert, duplicate or remove an instruction or a data cell.
+ *      Arguments that refer to moved instructions or cells are rewritten so they keep pointing at the same thing.
  * @returns {Brain} A brand new mutated brain, ready to run.
  */
 export const mutateBrain = (
     brain,
     dataMutationRate = 0.1,
-    instructionMutationRate = 0.1
+    instructionMutationRate = 0.1,
+    structureMutationRate = 0.1,
 ) => {
-    const returnBrain = newBrain(brain.sizes, brain.operations);
-    returnBrain.instructions = returnBrain.instructions.map((ins, i) =>
-        Math.random() < instructionMutationRate ? ins : brain.instructions[i]
-    );
-    returnBrain.startData = returnBrain.startData.map(
-        (d, i) => brain.startData[i] + dataMutationRate * d
-    );
-    returnBrain.startOutputData = returnBrain.startOutputData.map(
-        (d, i) => brain.startOutputData[i] + dataMutationRate * d
-    );
-    resetBrain(returnBrain);
-    return returnBrain;
+    const child = {
+        instructions: brain.instructions.map((ins) =>
+            Math.random() < instructionMutationRate
+                ? randomInstruction(brain.sizes, brain.operations)
+                : copyInstruction(ins),
+        ),
+        sizes: { ...brain.sizes },
+        operations: brain.operations,
+        startData: brain.startData.map(
+            (d) => d + dataMutationRate * randomGaussian(),
+        ),
+        startOutputData: brain.startOutputData.map(
+            (d) => d + dataMutationRate * randomGaussian(),
+        ),
+    };
+
+    if (Math.random() < structureMutationRate) {
+        const names = Object.keys(STRUCTURAL_MUTATIONS);
+        const name = names[Math.floor(Math.random() * names.length)];
+        const length = name.endsWith("Data")
+            ? child.startData.length
+            : child.instructions.length;
+        const positions = name.startsWith("insert") ? length + 1 : length;
+        STRUCTURAL_MUTATIONS[name](child, Math.floor(Math.random() * positions));
+    }
+
+    resetBrain(child);
+    return child;
 };
 
 /**
@@ -336,17 +455,19 @@ export const resetBrain = (brain) => {
 };
 
 /**
- * Run a brain for a specified number of steps.
+ * Run a brain for a specified number of steps, stopping early at a `halt`.
  * @param {Brain} brain
  * @param {Number} steps
+ * @returns {Number} The number of steps actually executed.
  */
 export const runBrain = (brain, steps = 1) => {
     for (let s = 0; s < steps; s++) {
         const result = brain.instructions[brain.instructionPointer].run(brain);
         brain.instructionPointer =
             (brain.instructionPointer + 1) % brain.sizes["INSTRUCTIONS"];
-        if (typeof result === "object" && result.halt) break;
+        if (typeof result === "object" && result.halt) return s + 1;
     }
+    return steps;
 };
 
 /**
@@ -364,8 +485,11 @@ export const printBrain = (brain, asStart = true, columns = 4) => {
     }
     // process.stdout.moveTo(0);
     // process.stdout.clearScreenDown();
-    printInColumns(brain.instructions, columns, (x) =>
-        [x.opName, ...x.args].join(" ")
+    printInColumns(
+        brain.instructions,
+        columns,
+        brain.instructions.length,
+        (x) => [x.opName, ...x.args].join(" "),
     );
     console.log("");
     printInColumns(brain.startOutputData, columns);
@@ -387,7 +511,7 @@ const printInColumns = (
     array,
     columns,
     arrayLength = array.length,
-    mapFunc
+    mapFunc,
 ) => {
     const columnSize = Math.ceil(arrayLength / columns);
     for (let i = 0; i < columnSize; i += 1) {
@@ -399,10 +523,10 @@ const printInColumns = (
                     if (index >= arrayLength) return "";
                     return fillToSpace(
                         `${index}: ` +
-                            (mapFunc ? mapFunc(array[index]) : array[index])
+                            (mapFunc ? mapFunc(array[index]) : array[index]),
                     );
                 })
-                .join("")
+                .join(""),
         );
     }
 };
@@ -431,6 +555,8 @@ export const brainToString = (brain) => {
     return `${brain.instructions
         .map(({ opName, args }) => [opName, ...args].join(" "))
         .join(",")}\n${brain.startData.join(",")}\n${brain.startOutputData.join(
-        ","
+        ",",
     )}`;
 };
+
+export { traceBrain } from "./trace.js";

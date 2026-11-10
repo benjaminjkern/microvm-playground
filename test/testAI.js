@@ -4,11 +4,28 @@ const {
     runBrain,
     mutateBrain,
     resetBrain,
+    printBrain,
+    traceBrain,
 } = require("../modules/AI");
 
 const TESTS_TO_RUN = 100;
+const STEPS_PER_RUN = 100;
+// Score added per instruction and per data cell. Kept far below typical target error so it only
+// decides between brains that are otherwise equally good: the smaller microVM wins.
+const SIZE_PENALTY = 0.001;
+// Score added per step a run executes before halting, averaged over the brain's runs. A brain that
+// never halts pays for all STEPS_PER_RUN of them, so halting early is rewarded.
+const STEP_PENALTY = 0.001;
+// Stopping rules. Converged: the best and worst survivors have the same score (within TOLERANCE)
+// and have stayed that way for CONVERGED_GENERATIONS, which gives smaller exact variants time to
+// show up and break the tie. Stagnant: the cutoff score (the worst survivor) has not improved for
+// PATIENCE generations, for targets the brains never match exactly.
+const TOLERANCE = 1e-9;
+const CONVERGED_GENERATIONS = 100;
+const PATIENCE = 2000;
 
 const error = (expected, result) => {
+    if (!Number.isFinite(result)) return Number.MAX_SAFE_INTEGER;
     return Math.abs(expected - result);
 };
 
@@ -18,34 +35,56 @@ const sampleInput = () => RANGE * (Math.random() * 2 - 1);
 
 const f = (x) => x ** 2 - 4 * x + 1;
 
+// const f = (x) => x ** 2;
+
 const fakeF = (x, brain) => {
     resetBrain(brain);
     brain.inputData[0] = x;
-    runBrain(brain, 100);
+    brain.lastRunSteps = runBrain(brain, STEPS_PER_RUN);
     return brain.outputData[0];
 };
 
 const testBrain = (brain) => {
     let totalError = 0;
+    let totalSteps = 0;
     for (let i = 0; i < TESTS_TO_RUN; i++) {
         const value = sampleInput();
         totalError += error(f(value), fakeF(value, brain));
+        totalSteps += brain.lastRunSteps;
     }
     brain.totalError = (brain.totalError || 0) + totalError;
+    brain.totalSteps = (brain.totalSteps || 0) + totalSteps;
     brain.totalRuns = (brain.totalRuns || 0) + TESTS_TO_RUN;
-    brain.score = brain.totalError / brain.totalRuns;
+    brain.targetError = brain.totalError / brain.totalRuns;
+    brain.averageSteps = brain.totalSteps / brain.totalRuns;
+    brain.sizePenalty =
+        SIZE_PENALTY * (brain.sizes.INSTRUCTIONS + brain.sizes.DATASIZE);
+    brain.stepPenalty = STEP_PENALTY * brain.averageSteps;
+    brain.score = brain.targetError + brain.sizePenalty + brain.stepPenalty;
     return brain.score;
 };
 
-const runEntireTest = (dataMutationRate, instructionMutationRate) => {
+const runEntireTest = (
+    dataMutationRate,
+    instructionMutationRate,
+    structureMutationRate,
+) => {
     let brains = Array(50)
         .fill()
-        .map(() => newBrain({ IOSIZE: 1 }));
+        .map(() => newBrain({ INPUTSIZE: 1, OUTPUTSIZE: 1 }));
     let t = 0;
-    while (t < 500) {
+    let convergedFor = 0;
+    let bestCutoff = Infinity;
+    let lastImprovement = 0;
+    while (true) {
         brains.map((brain) => {
             brains.push(
-                mutateBrain(brain, dataMutationRate, instructionMutationRate)
+                mutateBrain(
+                    brain,
+                    dataMutationRate,
+                    instructionMutationRate,
+                    structureMutationRate,
+                ),
             );
         });
 
@@ -53,20 +92,49 @@ const runEntireTest = (dataMutationRate, instructionMutationRate) => {
         brains.sort((a, b) => a.score - b.score);
         brains = brains.slice(0, brains.length / 2);
 
-        // if (t % 100 === 0) console.log(brains[0].score);
+        if (t % 100 === 0) {
+            const best = brains[0];
+            console.log(
+                `${best.score.toPrecision(6)}  (error ${best.targetError.toPrecision(6)}, ${best.sizes.INSTRUCTIONS} instructions, ${best.sizes.DATASIZE} data, ${best.averageSteps.toPrecision(4)} steps)`,
+            );
+        }
 
-        if (brains[brains.length - 1].score === 0) break;
+        const best = brains[0];
+        const worst = brains[brains.length - 1];
+        convergedFor =
+            worst.score - best.score <= TOLERANCE ? convergedFor + 1 : 0;
+        if (convergedFor >= CONVERGED_GENERATIONS) {
+            console.log(
+                `Converged after ${t} generations: all ${brains.length} survivors score ${best.score.toPrecision(6)} (error ${best.targetError.toPrecision(6)}, ${best.sizes.INSTRUCTIONS} instructions, ${best.sizes.DATASIZE} data, ${best.averageSteps.toPrecision(4)} steps).`,
+            );
+            break;
+        }
+        if (worst.score < bestCutoff - TOLERANCE) {
+            bestCutoff = worst.score;
+            lastImprovement = t;
+        } else if (t - lastImprovement >= PATIENCE) {
+            console.log(
+                `Stopped after ${t} generations: cutoff score ${worst.score.toPrecision(6)} has not improved for ${PATIENCE} generations.`,
+            );
+            break;
+        }
         t++;
     }
-    return brains[0].score;
+    traceBrain(brains[0], { target: f, error, steps: STEPS_PER_RUN });
+    // return brains[0].score;
 };
 
-const runMultipleTests = (dataMutationRate, instructionMutationRate) => {
+const runMultipleTests = (
+    dataMutationRate,
+    instructionMutationRate,
+    structureMutationRate,
+) => {
     let sumBestScore = 0;
     for (let n = 0; n < TESTS_TO_RUN; n++) {
         const bestScore = runEntireTest(
             dataMutationRate,
-            instructionMutationRate
+            instructionMutationRate,
+            structureMutationRate,
         );
         sumBestScore += bestScore;
         console.log(sumBestScore / (n + 1));
@@ -74,7 +142,9 @@ const runMultipleTests = (dataMutationRate, instructionMutationRate) => {
     return sumBestScore / TESTS_TO_RUN;
 };
 
-runMultipleTests(0.1, 0.15);
+runEntireTest(0.1, 0.15, 0.1);
+
+// runMultipleTests(0.1, 0.15);
 // 0.1, 0.05 -> 6.444231773744312
 // 0.1, 0.1 -> 4.655267167985314
 // 0.1, 0.125 -> 4.17242535874885
@@ -88,19 +158,6 @@ runMultipleTests(0.1, 0.15);
 
 // const bestBrain = brains[0];
 
-const playWithBrain = (bestBrain) => {
-    const prompt = require("prompt-sync")();
-
-    while (true) {
-        const s = prompt("Gimme input: ");
-        if (isNaN(s)) break;
-
-        const n = Number(s);
-        console.log("Expected output:", f(n));
-        console.log("Brain output:", fakeF(n, bestBrain));
-    }
-};
-
 const printValuesInRange = (bestBrain) => {
     for (let i = -RANGE; i <= RANGE; i += 0.1) {
         const expected = f(i);
@@ -113,7 +170,7 @@ const printValuesInRange = (bestBrain) => {
             ",",
             result,
             ";",
-            error(expected, result)
+            error(expected, result),
         );
     }
 };
