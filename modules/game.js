@@ -301,7 +301,8 @@ export const moveBots = () => {
         }
 
         bot.brain.inputData = [...enemyDists, ...bulletDists, 1, Math.random()];
-        runBrain(bot.brain, INSTRUCTIONS_RUN_PER_FRAME);
+        // bots keep running from where they left off, wrapping to the top of the program
+        runBrain(bot.brain, INSTRUCTIONS_RUN_PER_FRAME, true);
         const [speed, angleSpeed, shoot, shootBig] = bot.isManual
             ? getManualBotInputs()
             : bot.brain.outputData;

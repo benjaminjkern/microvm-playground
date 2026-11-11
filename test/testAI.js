@@ -16,8 +16,8 @@ const STEPS_PER_RUN = 100;
 // Score added per instruction and per data cell. Kept far below typical target error so it only
 // decides between brains that are otherwise equally good: the smaller microVM wins.
 const SIZE_PENALTY = 0.001;
-// Score added per step a run executes before halting, averaged over the brain's runs. A brain that
-// never halts pays for all STEPS_PER_RUN of them, so halting early is rewarded.
+// Score added per step a run executes, averaged over the brain's runs. A run ends when the program runs
+// off its end or hits a halt; one that loops forever pays for all STEPS_PER_RUN of them.
 const STEP_PENALTY = 0.001;
 const POPULATION = 50;
 // Purely random brains added to every generation's pool, before scoring, as fresh blood.
@@ -27,17 +27,18 @@ const RANDOM_SEEDS_PER_GENERATION = 1;
 const WORST_SURVIVAL = 0.03;
 // Fraction of children that start as a cross of their parent with a random other survivor before the
 // usual mutation; the rest are mutated copies of one parent. 0 turns crossover off.
-const CROSSOVER_RATE = 0;
+const CROSSOVER_RATE = 0.1;
 // Mutation rates every brain starts with. Each brain carries its own copy and hands it to its children
-// with a random tweak of exp(RATE_ADAPTATION * gaussian) per rate, so lineages tune their own rates.
-// 0 keeps the rates fixed.
+// shifted by RATE_ADAPTATION * gaussian per rate (clamped at 0), so lineages tune their own rates. A rate
+// at 0 switches that kind of mutation off for the child, but the rates themselves keep moving, so it
+// comes back on. 0 keeps the rates fixed.
 const INITIAL_RATES = {
     data: 0.1,
     instruction: 0.15,
     structure: 0.1,
     rounding: 0.1,
 };
-const RATE_ADAPTATION = 0.2;
+const RATE_ADAPTATION = 0.05;
 
 const error = (expected, result) => {
     if (!Number.isFinite(result)) return Number.MAX_SAFE_INTEGER;

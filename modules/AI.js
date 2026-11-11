@@ -332,16 +332,28 @@ const remapReferences = (brain, sizeName, mapIndex) => {
 // Insert: references keep pointing at the element they pointed at before.
 // Duplicate: references to k are split at random between the two copies.
 // Remove: references to k go to the neighbour that slides into its slot (or the new last element).
+// Move: the element at k lands on j and everything between them slides one slot towards k; every
+// reference follows its element, so nothing is lost or reassigned.
 const afterInsert = (k) => (i) => (i < k ? i : i + 1);
 const afterDuplicate = (k) => (i) =>
     i < k ? i : i > k ? i + 1 : k + Math.floor(Math.random() * 2);
 const afterRemove = (k, newLength) => (i) =>
     i < k ? i : i > k ? i - 1 : Math.min(k, newLength - 1);
+const afterMove = (k, j) => (i) =>
+    i === k
+        ? j
+        : k < j && i > k && i <= j
+          ? i - 1
+          : j < k && i >= j && i < k
+            ? i + 1
+            : i;
 
 /**
  * Structural mutations. Each changes the brain in place: the array, its size, and every instruction
  * argument that refers to a moved element. `k` is the position to act on (for inserts it may equal the
- * current length, meaning append). Each returns whether it applied; size limits can refuse it.
+ * current length, meaning append); `moveInstruction` also takes the destination `j`, random when omitted.
+ * Each returns whether it applied; size limits can refuse it. Start data is not moved: with references
+ * following their cells, that would change nothing.
  */
 export const STRUCTURAL_MUTATIONS = {
     insertInstruction: (brain, k) => {
@@ -373,6 +385,17 @@ export const STRUCTURAL_MUTATIONS = {
         );
         return true;
     },
+    moveInstruction: (brain, k, j) => {
+        const length = brain.instructions.length;
+        if (length < 2) return false;
+        if (j === undefined)
+            j = (k + 1 + Math.floor(Math.random() * (length - 1))) % length;
+        if (j === k) return false;
+        const [instruction] = brain.instructions.splice(k, 1);
+        brain.instructions.splice(j, 0, instruction);
+        remapReferences(brain, "INSTRUCTIONS", afterMove(k, j));
+        return true;
+    },
     insertData: (brain, k) => {
         if (brain.startData.length >= MAX_DATASIZE) return false;
         brain.startData.splice(k, 0, randomGaussian());
@@ -402,7 +425,8 @@ export const STRUCTURAL_MUTATIONS = {
  * @param {Number} dataMutationRate Every start and output value gets a gaussian nudge scaled by this.
  * @param {Number} instructionMutationRate Probability that each instruction is replaced by a random one.
  * @param {Number} structureMutationRate Probability that the child also gets one structural change,
- *      picked at random from `STRUCTURAL_MUTATIONS`: insert, duplicate or remove an instruction or a data cell.
+ *      picked at random from `STRUCTURAL_MUTATIONS`: insert, duplicate, remove or move an instruction, or
+ *      insert, duplicate or remove a data cell.
  *      Arguments that refer to moved instructions or cells are rewritten so they keep pointing at the same thing.
  * @param {Number} dataRoundingRate Probability that one start-data cell is rounded to the nearest integer,
  *      so exact integer constants are reachable without being built out of set1 and add.
@@ -504,16 +528,22 @@ export const resetBrain = (brain) => {
 };
 
 /**
- * Run a brain for a specified number of steps, stopping early at a `halt`.
+ * Run a brain for up to `steps` steps. The run ends early at a `halt`, or when the pointer runs off the
+ * end of the program; a program that wants to keep going loops back with `jump` or `jgz`. With `wrap`
+ * the pointer goes back to the top instead, which is how the game's bots run on across frames. A brain
+ * that has ended stays ended, executing nothing, until `resetBrain`.
  * @param {Brain} brain
  * @param {Number} steps
+ * @param {Boolean} wrap Continue from the first instruction after the last one instead of ending.
  * @returns {Number} The number of steps actually executed.
  */
-export const runBrain = (brain, steps = 1) => {
+export const runBrain = (brain, steps = 1, wrap = false) => {
+    const length = brain.instructions.length;
     for (let s = 0; s < steps; s++) {
+        if (brain.instructionPointer >= length) return s;
         const result = brain.instructions[brain.instructionPointer].run(brain);
-        brain.instructionPointer =
-            (brain.instructionPointer + 1) % brain.sizes["INSTRUCTIONS"];
+        brain.instructionPointer++;
+        if (wrap) brain.instructionPointer %= length;
         if (typeof result === "object" && result.halt) return s + 1;
     }
     return steps;

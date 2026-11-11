@@ -16,35 +16,34 @@ export const DEFAULT_RATES = {
     rounding: 0.1,
 };
 
-// Bounds that self-adaptation cannot push a rate past.
-const RATE_BOUNDS = {
-    data: [1e-4, 10],
-    instruction: [1e-3, 1],
-    structure: [1e-3, 1],
-    rounding: [1e-3, 1],
-};
+// The most self-adaptation can push a rate up to; no rate can go below 0.
+const RATE_MAX = { data: 10, instruction: 1, structure: 1, rounding: 1 };
 
-const clamp = (value, [low, high]) => Math.min(high, Math.max(low, value));
+const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 
 /**
- * A child's rates: each of the parent's rates scaled by exp(adaptation * gaussian), so a lineage tunes
- * its own mutation rates along with everything else. An adaptation of 0 keeps them fixed.
+ * A child's rates: each of the parent's rates shifted by adaptation * gaussian and kept between 0 and
+ * its maximum, so a lineage tunes its own mutation rates along with everything else. The shift is
+ * added, not multiplied, on purpose: a rate that has fallen to 0 (no mutation of that kind) is still one
+ * or two steps away from a useful value, where a multiplicative step would strand it near 0 for hundreds
+ * of generations. An adaptation of 0 keeps the rates fixed.
  */
 export const adaptRates = (rates, adaptation) =>
     Object.fromEntries(
         Object.entries(rates).map(([name, rate]) => [
             name,
             clamp(
-                rate * Math.exp(adaptation * randomGaussian()),
-                RATE_BOUNDS[name] ?? [0, Infinity],
+                rate + adaptation * randomGaussian(),
+                0,
+                RATE_MAX[name] ?? Infinity,
             ),
         ]),
     );
 
-/** Rates for a crossover child: the geometric mean of both parents'. */
+/** Rates for a crossover child: the average of both parents'. */
 export const mixRates = (a, b) =>
     Object.fromEntries(
-        Object.keys(a).map((name) => [name, Math.sqrt(a[name] * b[name])]),
+        Object.keys(a).map((name) => [name, (a[name] + b[name]) / 2]),
     );
 
 /**
@@ -104,7 +103,7 @@ export const selectSurvivors = (sorted, count, worstSurvival) => {
  * @param {Function} options.score Scores a brain (lower is better). Called on every brain in the pool each step.
  * @param {Number} [options.size=50] Survivors kept each generation.
  * @param {Object} [options.rates=DEFAULT_RATES] Mutation rates every fresh brain starts with.
- * @param {Number} [options.rateAdaptation=0.2] How much a child's rates can drift from its parent's; 0 fixes them.
+ * @param {Number} [options.rateAdaptation=0.05] Size of the random shift a child's rates get from its parent's (added to each rate, clamped at 0); 0 fixes them.
  * @param {Number} [options.crossoverRate=0.5] Fraction of children that start as a cross with a random other survivor.
  * @param {Number} [options.randomSeeds=1] Fresh random brains added to every generation's pool.
  * @param {Number} [options.worstSurvival=0.03] Survival odds of the worst brain in the pool; the best always survives.
@@ -114,7 +113,7 @@ export const newPopulation = (options) => {
     const opts = {
         size: 50,
         rates: DEFAULT_RATES,
-        rateAdaptation: 0.2,
+        rateAdaptation: 0.05,
         crossoverRate: 0.5,
         randomSeeds: 1,
         worstSurvival: 0.03,

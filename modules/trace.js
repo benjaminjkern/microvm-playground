@@ -200,6 +200,7 @@ const readLine = async (input, view, promptText) => {
  * @param {Function} [options.target] The function the brain is meant to compute; shown as expected output.
  * @param {Function} [options.error] error(expected, result) used in the summary. Default: absolute difference.
  * @param {Number} [options.steps=100] Steps per run. Should match how the brain is scored.
+ * @param {Boolean} [options.wrap=false] Wrap to the top after the last instruction instead of ending, as `runBrain`.
  * @param {Number} [options.inputIndex=0] Input slot that receives x.
  * @param {Number} [options.outputIndex=0] Output slot treated as the answer.
  * @param {Object} [options.input] An input from `createInput` to share; the caller then owns closing it.
@@ -208,6 +209,7 @@ export const traceBrain = async (brain, options = {}) => {
     const opts = {
         error: (expected, result) => Math.abs(expected - result),
         steps: 100,
+        wrap: false,
         inputIndex: 0,
         outputIndex: 0,
         ...options,
@@ -241,7 +243,7 @@ export const traceBrain = async (brain, options = {}) => {
         const ip = brain.instructionPointer;
         const ins = brain.instructions[ip];
         const before = { data: [...brain.data], out: [...brain.outputData] };
-        runBrain(brain, 1);
+        runBrain(brain, 1, opts.wrap);
         view.step++;
         view.lastIp = ip;
         view.written = new Set();
@@ -258,13 +260,16 @@ export const traceBrain = async (brain, options = {}) => {
                 changes.push(`output[${i}] = ${fmt(v)}`);
             }
         });
-        const nextInLine = (ip + 1) % brain.sizes.INSTRUCTIONS;
+        const length = brain.instructions.length;
+        const nextInLine = opts.wrap ? (ip + 1) % length : ip + 1;
+        const ended = !opts.wrap && brain.instructionPointer >= length;
         if (brain.instructionPointer !== nextInLine) changes.push(`jump -> ${brain.instructionPointer}`);
         else if (ins.opName === "jgz") changes.push("not taken");
         if (ins.opName === "halt") changes.push("HALT");
+        else if (ended) changes.push("END OF PROGRAM");
         view.event = `step ${view.step}: ${ip}: ${instructionText(ins)}   ${changes.join(", ") || "(no change)"}`;
         view.status = "";
-        if (ins.opName === "halt" || view.step >= opts.steps) {
+        if (ins.opName === "halt" || ended || view.step >= opts.steps) {
             view.finished = true;
             const out = brain.outputData[opts.outputIndex];
             let summary = `finished after ${view.step} step(s): output[${opts.outputIndex}] = ${fmt(out)}`;
