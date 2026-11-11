@@ -27,11 +27,16 @@ const RANDOM_SEEDS_PER_GENERATION = 1;
 const WORST_SURVIVAL = 0.03;
 // Fraction of children that start as a cross of their parent with a random other survivor before the
 // usual mutation; the rest are mutated copies of one parent. 0 turns crossover off.
-const CROSSOVER_RATE = 0.5;
+const CROSSOVER_RATE = 0;
 // Mutation rates every brain starts with. Each brain carries its own copy and hands it to its children
 // with a random tweak of exp(RATE_ADAPTATION * gaussian) per rate, so lineages tune their own rates.
 // 0 keeps the rates fixed.
-const INITIAL_RATES = { data: 0.1, instruction: 0.15, structure: 0.1, rounding: 0.1 };
+const INITIAL_RATES = {
+    data: 0.1,
+    instruction: 0.15,
+    structure: 0.1,
+    rounding: 0.1,
+};
 const RATE_ADAPTATION = 0.2;
 
 const error = (expected, result) => {
@@ -105,7 +110,8 @@ const runEntireTest = async (initialRates) => {
     evolve: while (true) {
         const best = population.step();
         const t = population.generation - 1;
-        if (t % 100 === 0) console.log(`[run ${run}, gen ${t}] ${describe(best)}`);
+        if (t % 100 === 0)
+            console.log(`[run ${run}, gen ${t}] ${describe(best)}`);
 
         // Give the event loop a turn so keypresses arrive, then act on them.
         await new Promise((resolve) => setImmediate(resolve));
@@ -119,7 +125,9 @@ const runEntireTest = async (initialRates) => {
                 console.log(
                     `[run ${run}, gen ${population.generation}] ${describe(population.best)}`,
                 );
-                console.log(`  ${brainToString(population.best).split("\n")[0]}`);
+                console.log(
+                    `  ${brainToString(population.best).split("\n")[0]}`,
+                );
             } else if (key === "p") {
                 break evolve;
             } else if (key === "q") {
