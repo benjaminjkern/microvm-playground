@@ -418,17 +418,24 @@ export const STRUCTURAL_MUTATIONS = {
         return true;
     },
 };
+const INSTRUCTION_MUTATIONS = Object.keys(STRUCTURAL_MUTATIONS).filter(
+    (name) => !name.endsWith("Data"),
+);
+const DATA_MUTATIONS = Object.keys(STRUCTURAL_MUTATIONS).filter((name) =>
+    name.endsWith("Data"),
+);
 
 /**
  * Take in an existing brain and return a mutated copy. The parent is never modified.
  * @param {Brain} brain
  * @param {Number} dataMutationRate Every start and output value gets a gaussian nudge scaled by this.
  * @param {Number} instructionMutationRate Probability that each instruction is replaced by a random one.
- * @param {Number} structureMutationRate Probability that the child also gets one structural change,
- *      picked at random from `STRUCTURAL_MUTATIONS`: insert, duplicate, remove or move an instruction, or
- *      insert, duplicate or remove a data cell.
+ * @param {Number} structureMutationRate Probability, per instruction and per start-data cell, of one
+ *      structural change of that kind from `STRUCTURAL_MUTATIONS`: insert, duplicate, remove or move an
+ *      instruction, or insert, duplicate or remove a data cell. Like instruction replacement this is a roll
+ *      per element, so a bigger brain sees more structural change and a child can make several changes at once.
  *      Arguments that refer to moved instructions or cells are rewritten so they keep pointing at the same thing.
- * @param {Number} dataRoundingRate Probability that one start-data cell is rounded to the nearest integer,
+ * @param {Number} dataRoundingRate Probability, per start-data cell, of being rounded to the nearest integer,
  *      so exact integer constants are reachable without being built out of set1 and add.
  * @returns {Brain} A brand new mutated brain, ready to run.
  */
@@ -436,8 +443,8 @@ export const mutateBrain = (
     brain,
     dataMutationRate = 0.1,
     instructionMutationRate = 0.1,
-    structureMutationRate = 0.1,
-    dataRoundingRate = 0.1,
+    structureMutationRate = 0.01,
+    dataRoundingRate = 0.01,
 ) => {
     const child = {
         instructions: brain.instructions.map((ins) =>
@@ -455,20 +462,30 @@ export const mutateBrain = (
         ),
     };
 
-    if (Math.random() < dataRoundingRate) {
-        const i = Math.floor(Math.random() * child.startData.length);
-        child.startData[i] = Math.round(child.startData[i]);
-    }
+    child.startData = child.startData.map((d) =>
+        Math.random() < dataRoundingRate ? Math.round(d) : d,
+    );
 
-    if (Math.random() < structureMutationRate) {
-        const names = Object.keys(STRUCTURAL_MUTATIONS);
+    // Every instruction and every data cell rolls for a structural change. The hits are counted first
+    // and then applied one at a time at freshly drawn positions, since each change shifts the rest.
+    const hits = (length) => {
+        let n = 0;
+        for (let i = 0; i < length; i++)
+            if (Math.random() < structureMutationRate) n++;
+        return n;
+    };
+    const applyOne = (names) => {
         const name = names[Math.floor(Math.random() * names.length)];
         const length = name.endsWith("Data")
             ? child.startData.length
             : child.instructions.length;
         const positions = name.startsWith("insert") ? length + 1 : length;
         STRUCTURAL_MUTATIONS[name](child, Math.floor(Math.random() * positions));
-    }
+    };
+    const instructionHits = hits(child.instructions.length);
+    const dataHits = hits(child.startData.length);
+    for (let n = 0; n < instructionHits; n++) applyOne(INSTRUCTION_MUTATIONS);
+    for (let n = 0; n < dataHits; n++) applyOne(DATA_MUTATIONS);
 
     resetBrain(child);
     return child;

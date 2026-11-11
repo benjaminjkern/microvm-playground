@@ -28,15 +28,17 @@ const WORST_SURVIVAL = 0.03;
 // Fraction of children that start as a cross of their parent with a random other survivor before the
 // usual mutation; the rest are mutated copies of one parent. 0 turns crossover off.
 const CROSSOVER_RATE = 0.1;
-// Mutation rates every brain starts with. Each brain carries its own copy and hands it to its children
-// shifted by RATE_ADAPTATION * gaussian per rate (clamped at 0), so lineages tune their own rates. A rate
-// at 0 switches that kind of mutation off for the child, but the rates themselves keep moving, so it
-// comes back on. 0 keeps the rates fixed.
+// Mutation rates every brain starts with, all per element: the gaussian nudge on each data cell, and the
+// chance per instruction of replacement, per instruction or data cell of a structural change, and per
+// data cell of rounding. Each brain carries its own copy and hands it to its children shifted by
+// RATE_ADAPTATION * gaussian per rate (clamped at 0), so lineages tune their own rates. A rate at 0
+// switches that kind of mutation off for the child, but the rates themselves keep moving, so it comes
+// back on. 0 keeps the rates fixed.
 const INITIAL_RATES = {
     data: 0.1,
     instruction: 0.15,
-    structure: 0.1,
-    rounding: 0.1,
+    structure: 0.02,
+    rounding: 0.02,
 };
 const RATE_ADAPTATION = 0.05;
 

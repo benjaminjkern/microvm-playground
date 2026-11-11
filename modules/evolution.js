@@ -8,12 +8,16 @@ import { randomGaussian } from "./utils.js";
  * (how to make a random one) and `score` (lower is better).
  */
 
-/** Mutation rates a brain carries and passes on. See `mutateBrain` for what each one does. */
+/**
+ * Mutation rates a brain carries and passes on. See `mutateBrain` for what each one does; all of them
+ * are per element (per start-data cell or per instruction), so the expected number of changes in a child
+ * grows with the brain.
+ */
 export const DEFAULT_RATES = {
     data: 0.1,
     instruction: 0.1,
-    structure: 0.1,
-    rounding: 0.1,
+    structure: 0.02,
+    rounding: 0.02,
 };
 
 // The most self-adaptation can push a rate up to; no rate can go below 0.
