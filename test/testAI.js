@@ -8,13 +8,15 @@ const {
     traceBrain,
     createInput,
     brainToString,
+    brainSize,
 } = require("../modules/AI");
 const { newPopulation } = require("../modules/evolution");
 
 const TESTS_TO_RUN = 100;
 const STEPS_PER_RUN = 100;
-// Score added per instruction and per data cell. Kept far below typical target error so it only
-// decides between brains that are otherwise equally good: the smaller microVM wins.
+// Score added per instruction that is not a nop and per data cell the program refers to. Kept far
+// below typical target error so it only decides between brains that are otherwise equally good: the
+// smaller microVM wins.
 const SIZE_PENALTY = 0.001;
 // Score added per step a run executes, averaged over the brain's runs. A run ends when the program runs
 // off its end or hits a halt; one that loops forever pays for all STEPS_PER_RUN of them.
@@ -29,8 +31,8 @@ const WORST_SURVIVAL = 0.03;
 // usual mutation; the rest are mutated copies of one parent. 0 turns crossover off.
 const CROSSOVER_RATE = 0.1;
 // Mutation rates every brain starts with, all per element: the gaussian nudge on each data cell, and the
-// chance per instruction of replacement, per instruction or data cell of a structural change, and per
-// data cell of rounding. Each brain carries its own copy and hands it to its children shifted by
+// chance per instruction of replacement, per instruction slot of a structural change (insert, duplicate,
+// remove or move), per data cell of rounding, and per instruction argument of being redrawn. Each brain carries its own copy and hands it to its children shifted by
 // RATE_ADAPTATION * gaussian per rate (clamped at 0), so lineages tune their own rates. A rate at 0
 // switches that kind of mutation off for the child, but the rates themselves keep moving, so it comes
 // back on. 0 keeps the rates fixed.
@@ -39,6 +41,7 @@ const INITIAL_RATES = {
     instruction: 0.15,
     structure: 0.02,
     rounding: 0.02,
+    argument: 0.03,
 };
 const RATE_ADAPTATION = 0.05;
 
@@ -51,8 +54,8 @@ const RANGE = 10;
 
 const sampleInput = () => RANGE * (Math.random() * 2 - 1);
 
+// const f = (x) => Math.sin(x);
 const f = (x) => x ** 2 - 2 * x + 1;
-
 // const f = (x) => x ** 2;
 
 const fakeF = (x, brain) => {
@@ -75,8 +78,9 @@ const testBrain = (brain) => {
     brain.totalRuns = (brain.totalRuns || 0) + TESTS_TO_RUN;
     brain.targetError = brain.totalError / brain.totalRuns;
     brain.averageSteps = brain.totalSteps / brain.totalRuns;
+    brain.used = brainSize(brain);
     brain.sizePenalty =
-        SIZE_PENALTY * (brain.sizes.INSTRUCTIONS + brain.sizes.DATASIZE);
+        SIZE_PENALTY * (brain.used.instructions + brain.used.data);
     brain.stepPenalty = STEP_PENALTY * brain.averageSteps;
     brain.score = brain.targetError + brain.sizePenalty + brain.stepPenalty;
     return brain.score;
@@ -88,7 +92,7 @@ const describeRates = (rates) =>
         .join(" ");
 
 const describe = (brain) =>
-    `${brain.score.toPrecision(6)} (error ${brain.targetError.toPrecision(6)}, ${brain.sizes.INSTRUCTIONS} instructions, ${brain.sizes.DATASIZE} data, ${brain.averageSteps.toPrecision(4)} steps, rates ${describeRates(brain.rates)})`;
+    `${brain.score.toPrecision(6)} (error ${brain.targetError.toPrecision(6)}, ${brain.used.instructions} instructions, ${brain.used.data} data, ${brain.averageSteps.toPrecision(4)} steps, rates ${describeRates(brain.rates)})`;
 
 // A key from the shared input: one character in a terminal, a whole line when stdin is piped.
 const keyOf = (k) =>

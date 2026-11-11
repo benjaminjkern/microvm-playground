@@ -10,18 +10,18 @@ import { randomGaussian } from "./utils.js";
 
 /**
  * Mutation rates a brain carries and passes on. See `mutateBrain` for what each one does; all of them
- * are per element (per start-data cell or per instruction), so the expected number of changes in a child
- * grows with the brain.
+ * are per element (per start-data cell or per instruction slot).
  */
 export const DEFAULT_RATES = {
     data: 0.1,
     instruction: 0.1,
     structure: 0.02,
     rounding: 0.02,
+    argument: 0.03,
 };
 
 // The most self-adaptation can push a rate up to; no rate can go below 0.
-const RATE_MAX = { data: 10, instruction: 1, structure: 1, rounding: 1 };
+const RATE_MAX = { data: 10, instruction: 1, structure: 1, rounding: 1, argument: 1 };
 
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 
@@ -163,6 +163,7 @@ export const newPopulation = (options) => {
                     rates.instruction,
                     rates.structure,
                     rates.rounding,
+                    rates.argument,
                 );
                 child.rates = rates;
                 return child;
