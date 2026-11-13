@@ -79,22 +79,22 @@ const DEFAULT_OPERATIONS = {
             },
         argSizes: ["DATASIZE", "DATASIZE"],
     },
-    sin: {
-        run:
-            ([x, p]) =>
-            (brain) => {
-                brain.data[p] = Math.sin(brain.data[x]);
-            },
-        argSizes: ["DATASIZE", "DATASIZE"],
-    },
-    cos: {
-        run:
-            ([x, p]) =>
-            (brain) => {
-                brain.data[p] = Math.cos(brain.data[x]);
-            },
-        argSizes: ["DATASIZE", "DATASIZE"],
-    },
+    // sin: {
+    //     run:
+    //         ([x, p]) =>
+    //         (brain) => {
+    //             brain.data[p] = Math.sin(brain.data[x]);
+    //         },
+    //     argSizes: ["DATASIZE", "DATASIZE"],
+    // },
+    // cos: {
+    //     run:
+    //         ([x, p]) =>
+    //         (brain) => {
+    //             brain.data[p] = Math.cos(brain.data[x]);
+    //         },
+    //     argSizes: ["DATASIZE", "DATASIZE"],
+    // },
     log: {
         run:
             ([x, p]) =>
@@ -232,7 +232,11 @@ const randomInstruction = (sizes, operations) => {
  * @param {Object} operations Optional operations to add to or overwrite the defaults.
  * @param {Object} sizes Optional sizes, e.g. { INPUTSIZE: 1 }. Output, data and instruction sizes come from the string.
  */
-export const newBrainFromString = (brainString, operations = {}, sizes = {}) => {
+export const newBrainFromString = (
+    brainString,
+    operations = {},
+    sizes = {},
+) => {
     const [instructions, startData, startOutputData] = brainString
         .split("\n")
         .map((line) => line.split(","));
@@ -414,7 +418,11 @@ export const STRUCTURAL_MUTATIONS = {
         if (brain.startData.length <= 1) return false;
         brain.startData.splice(k, 1);
         brain.sizes.DATASIZE = brain.startData.length;
-        remapReferences(brain, "DATASIZE", afterRemove(k, brain.startData.length));
+        remapReferences(
+            brain,
+            "DATASIZE",
+            afterRemove(k, brain.startData.length),
+        );
         return true;
     },
 };
@@ -480,7 +488,10 @@ export const mutateBrain = (
             ? child.startData.length
             : child.instructions.length;
         const positions = name.startsWith("insert") ? length + 1 : length;
-        STRUCTURAL_MUTATIONS[name](child, Math.floor(Math.random() * positions));
+        STRUCTURAL_MUTATIONS[name](
+            child,
+            Math.floor(Math.random() * positions),
+        );
     };
     const instructionHits = hits(child.instructions.length);
     const dataHits = hits(child.startData.length);
@@ -507,7 +518,9 @@ export const crossoverBrains = (a, b) => {
     const fromEither = (field, length, copy) =>
         Array.from({ length }, (_, i) => {
             const able = parents.filter((p) => i < p[field].length);
-            return copy(able[Math.floor(Math.random() * able.length)][field][i]);
+            return copy(
+                able[Math.floor(Math.random() * able.length)][field][i],
+            );
         });
     const child = {
         instructions: fromEither(
@@ -517,7 +530,11 @@ export const crossoverBrains = (a, b) => {
         ),
         sizes: { ...lengthSource.sizes },
         operations: a.operations,
-        startData: fromEither("startData", lengthSource.startData.length, (d) => d),
+        startData: fromEither(
+            "startData",
+            lengthSource.startData.length,
+            (d) => d,
+        ),
         startOutputData: fromEither(
             "startOutputData",
             lengthSource.startOutputData.length,

@@ -142,33 +142,47 @@ export const newPopulation = (options) => {
         },
 
         /**
+         * A child of `brain`: a mutated copy, or, given a `mate`, a mutated cross of the two that starts
+         * from the average of their rates. Either way the child's rates are shifted by the adaptation.
+         */
+        breed(brain, mate) {
+            const parent = mate ? crossoverBrains(brain, mate) : brain;
+            const rates = adaptRates(
+                mate ? mixRates(brain.rates, mate.rates) : brain.rates,
+                opts.rateAdaptation,
+            );
+            const child = mutateBrain(
+                parent,
+                rates.data,
+                rates.instruction,
+                rates.structure,
+                rates.rounding,
+            );
+            child.rates = rates;
+            return child;
+        },
+
+        /**
          * One generation: every survivor gets one child (a mutated copy, or a mutated cross with a random
          * other survivor), newcomers join, everything is scored, and the rank lottery picks the survivors.
+         * @param {Brain[]} [extras=[]] More brains for this generation's pool, such as children bred with
+         *   another population; they survive only if they earn it.
          * @returns {Brain} The best brain.
          */
-        step() {
+        step(extras = []) {
             const survivors = population.brains;
             const children = survivors.map((brain) => {
                 const mate =
                     survivors[Math.floor(Math.random() * survivors.length)];
                 const crossed = Math.random() < opts.crossoverRate;
-                const parent = crossed ? crossoverBrains(brain, mate) : brain;
-                const rates = adaptRates(
-                    crossed ? mixRates(brain.rates, mate.rates) : brain.rates,
-                    opts.rateAdaptation,
-                );
-                const child = mutateBrain(
-                    parent,
-                    rates.data,
-                    rates.instruction,
-                    rates.structure,
-                    rates.rounding,
-                );
-                child.rates = rates;
-                return child;
+                return population.breed(brain, crossed ? mate : undefined);
             });
 
-            const pool = survivors.concat(children, fresh(opts.randomSeeds));
+            const pool = survivors.concat(
+                children,
+                extras,
+                fresh(opts.randomSeeds),
+            );
             pool.forEach((brain) => {
                 brain.score = opts.score(brain);
             });
@@ -185,4 +199,102 @@ export const newPopulation = (options) => {
         },
     };
     return population;
+};
+
+/** `count` of `items`, picked at random without replacement. */
+const pick = (items, count) => {
+    const rest = [...items];
+    const picked = [];
+    while (picked.length < count && rest.length > 0)
+        picked.push(rest.splice(Math.floor(Math.random() * rest.length), 1)[0]);
+    return picked;
+};
+
+const random = (items) => items[Math.floor(Math.random() * items.length)];
+
+/**
+ * Several populations evolved side by side: an island model. Every island is its own `newPopulation`
+ * with the same options, so each one follows its own path, and an island that has run into a dead end
+ * (say a population that has shrunk to a one-instruction constant and cannot grow back) does not drag
+ * the others down with it. Every `migrationInterval` generations, `migrationIslands` islands are picked
+ * at random and crossed: every survivor on each of them gets an extra child by a random survivor of one
+ * of the other picked islands, made the usual way (crossover, then mutation), and those children join
+ * that island's pool for the generation, where they survive only if they earn it.
+ *
+ * Same interface as a population (`generation`, `best`, `step()`, `reset()`), plus `islands`.
+ * @param {Object} options Everything `newPopulation` takes, with `size` now the size of one island, plus:
+ * @param {Number} [options.islands=10] How many islands.
+ * @param {Number} [options.size=20] Survivors kept on each island each generation.
+ * @param {Number} [options.migrationInterval=100] Generations between crossings; 0 never crosses.
+ * @param {Number} [options.migrationIslands=3] Islands crossed with each other each time.
+ * @returns {Archipelago}
+ */
+export const newArchipelago = (options) => {
+    const opts = {
+        islands: 10,
+        size: 20,
+        migrationInterval: 100,
+        migrationIslands: 3,
+        ...options,
+    };
+    const {
+        islands: count,
+        migrationInterval,
+        migrationIslands,
+        ...islandOptions
+    } = opts;
+    const islands = Array.from({ length: count }, () =>
+        newPopulation(islandOptions),
+    );
+
+    /** A crossing: cross-island children for each island taking part, keyed by island. */
+    const crossing = () => {
+        const crossed = pick(islands, migrationIslands);
+        if (crossed.length < 2) return new Map();
+        return new Map(
+            crossed.map((island) => {
+                const others = crossed.filter((other) => other !== island);
+                return [
+                    island,
+                    island.brains.map((brain) =>
+                        island.breed(brain, random(random(others).brains)),
+                    ),
+                ];
+            }),
+        );
+    };
+
+    const archipelago = {
+        options: opts,
+        islands,
+        generation: 0,
+
+        /** The best brain on any island, once at least one generation has been scored. */
+        get best() {
+            return islands
+                .map((island) => island.best)
+                .reduce((a, b) => (b.score < a.score ? b : a));
+        },
+
+        /** One generation on every island, with a crossing when one is due. */
+        step() {
+            const due =
+                migrationInterval > 0 &&
+                archipelago.generation > 0 &&
+                archipelago.generation % migrationInterval === 0;
+            const extras = due ? crossing() : new Map();
+            islands.forEach((island) =>
+                island.step(extras.get(island) ?? []),
+            );
+            archipelago.generation++;
+            return archipelago.best;
+        },
+
+        /** Throw every island away and start again from random brains. */
+        reset() {
+            islands.forEach((island) => island.reset());
+            archipelago.generation = 0;
+        },
+    };
+    return archipelago;
 };

@@ -9,17 +9,27 @@ const {
     createInput,
     brainToString,
 } = require("../modules/AI");
-const { newPopulation } = require("../modules/evolution");
+const { newArchipelago } = require("../modules/evolution");
 
 const TESTS_TO_RUN = 100;
+// Steps a run may take. A run that uses all of them never finished and counts as a failure (see `fakeF`),
+// so a brain has to halt or run off its end on its own. Otherwise the step limit works as a free loop
+// counter: a loop of 10 instructions cut off at step 100 runs exactly 10 times, and brains evolve to
+// pad themselves with dummy instructions to tune that count instead of finishing.
 const STEPS_PER_RUN = 100;
 // Score added per instruction and per data cell. Kept far below typical target error so it only
 // decides between brains that are otherwise equally good: the smaller microVM wins.
 const SIZE_PENALTY = 0.001;
 // Score added per step a run executes, averaged over the brain's runs. A run ends when the program runs
-// off its end or hits a halt; one that loops forever pays for all STEPS_PER_RUN of them.
+// off its end or hits a halt.
 const STEP_PENALTY = 0.001;
-const POPULATION = 50;
+// The population is split into islands that evolve on their own, so an island that runs into a dead end
+// (shrunk to a one-instruction constant, say) does not take the rest with it. Every MIGRATION_INTERVAL
+// generations MIGRATION_ISLANDS random islands are crossed with each other (see modules/evolution.js).
+const ISLANDS = 10;
+const ISLAND_SIZE = 20;
+const MIGRATION_INTERVAL = 1000;
+const MIGRATION_ISLANDS = 3;
 // Purely random brains added to every generation's pool, before scoring, as fresh blood.
 const RANDOM_SEEDS_PER_GENERATION = 1;
 // Survival odds by rank in the scored pool: the best brain always survives, the worst survives
@@ -51,7 +61,7 @@ const RANGE = 10;
 
 const sampleInput = () => RANGE * (Math.random() * 2 - 1);
 
-const f = (x) => x ** 2 - 2 * x + 1;
+const f = (x) => Math.sin(x);
 
 // const f = (x) => x ** 2;
 
@@ -59,6 +69,8 @@ const fakeF = (x, brain) => {
     resetBrain(brain);
     brain.inputData[0] = x;
     brain.lastRunSteps = runBrain(brain, STEPS_PER_RUN);
+    // Used every step it was given: it never finished, so the run failed (NaN scores as a huge error).
+    if (brain.lastRunSteps >= STEPS_PER_RUN) return NaN;
     return brain.outputData[0];
 };
 
@@ -90,14 +102,26 @@ const describeRates = (rates) =>
 const describe = (brain) =>
     `${brain.score.toPrecision(6)} (error ${brain.targetError.toPrecision(6)}, ${brain.sizes.INSTRUCTIONS} instructions, ${brain.sizes.DATASIZE} data, ${brain.averageSteps.toPrecision(4)} steps, rates ${describeRates(brain.rates)})`;
 
+// Each island's best as error/instructions, so a collapsed or stuck island stands out.
+const describeIslands = (islands) =>
+    islands
+        .map(
+            ({ best }) =>
+                `${best.targetError.toPrecision(3)}/${best.sizes.INSTRUCTIONS}`,
+        )
+        .join("  ");
+
 // A key from the shared input: one character in a terminal, a whole line when stdin is piped.
 const keyOf = (k) =>
     k === null ? "q" : typeof k === "string" ? k.trim() : k.str;
 
 const runEntireTest = async (initialRates) => {
     const input = await createInput();
-    const population = newPopulation({
-        size: POPULATION,
+    const population = newArchipelago({
+        islands: ISLANDS,
+        size: ISLAND_SIZE,
+        migrationInterval: MIGRATION_INTERVAL,
+        migrationIslands: MIGRATION_ISLANDS,
         newBrain: () => newBrain({ INPUTSIZE: 1, OUTPUTSIZE: 1 }),
         score: testBrain,
         rates: initialRates,
@@ -113,8 +137,12 @@ const runEntireTest = async (initialRates) => {
     evolve: while (true) {
         const best = population.step();
         const t = population.generation - 1;
-        if (t % 100 === 0)
+        if (t % 100 === 0) {
             console.log(`[run ${run}, gen ${t}] ${describe(best)}`);
+            console.log(
+                `  islands (error/instructions): ${describeIslands(population.islands)}`,
+            );
+        }
 
         // Give the event loop a turn so keypresses arrive, then act on them.
         await new Promise((resolve) => setImmediate(resolve));
