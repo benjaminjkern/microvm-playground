@@ -11,14 +11,19 @@ const {
 } = require("../modules/AI");
 const { newArchipelago } = require("../modules/evolution");
 
+// Inputs every brain is scored on in a generation. All brains in a generation see the same inputs (see
+// `newInputs`), so two scores differ only because the brains differ, not because one drew easier inputs.
+// That is what makes small, consistent improvements selectable: on x^5 over ±10, x^3 beats returning 0
+// by 1.5%, invisible when every brain rolls its own inputs (score noise ±15%) and decisive when they share.
 const TESTS_TO_RUN = 100;
 // Steps a run may take. A run that uses all of them never finished and counts as a failure (see `fakeF`),
 // so a brain has to halt or run off its end on its own. Otherwise the step limit works as a free loop
 // counter: a loop of 10 instructions cut off at step 100 runs exactly 10 times, and brains evolve to
 // pad themselves with dummy instructions to tune that count instead of finishing.
 const STEPS_PER_RUN = 100;
-// Score added per instruction and per data cell. Kept far below typical target error so it only
-// decides between brains that are otherwise equally good: the smaller microVM wins.
+// Score added per instruction and per data cell, once a brain's error is below PENALTY_GATE (see
+// CONSTANT_FLOOR). Kept far below typical target error so it only decides between brains that are
+// otherwise equally good: the smaller microVM wins.
 const SIZE_PENALTY = 0.001;
 // Score added per step a run executes, averaged over the brain's runs. A run ends when the program runs
 // off its end or hits a halt.
@@ -61,9 +66,33 @@ const RANGE = 10;
 
 const sampleInput = () => RANGE * (Math.random() * 2 - 1);
 
+// This generation's inputs, shared by every brain scored in it. Redrawn before every generation, so a
+// brain is only compared with brains that saw the same inputs, and no brain can overfit one fixed set.
+let inputs = [];
+const newInputs = () => {
+    inputs = Array.from({ length: TESTS_TO_RUN }, sampleInput);
+};
+
 const f = (x) => Math.sin(x);
 
 // const f = (x) => x ** 2;
+
+// Error of the best constant output, the median of f over the range: what a brain scores by ignoring its
+// input. The size and step penalties only count once a brain's error is below half of this. Charged from
+// the start they would strip every brain that has not found a foothold yet down to a one-instruction
+// constant, because on a plateau "same output, one instruction shorter" always wins now that scores are
+// paired, and a one-instruction brain has no material left to build with.
+const CONSTANT_FLOOR = (() => {
+    const values = Array.from({ length: 20000 }, () => f(sampleInput())).sort(
+        (a, b) => a - b,
+    );
+    const median = values[values.length >> 1];
+    return (
+        values.reduce((sum, value) => sum + Math.abs(value - median), 0) /
+        values.length
+    );
+})();
+const PENALTY_GATE = CONSTANT_FLOOR / 2;
 
 const fakeF = (x, brain) => {
     resetBrain(brain);
@@ -74,23 +103,26 @@ const fakeF = (x, brain) => {
     return brain.outputData[0];
 };
 
+// Scores a brain on this generation's shared inputs only. Nothing is carried over from earlier
+// generations: a running average over old input sets would be compared against children scored on the
+// new set, and the noise the shared inputs remove would come straight back.
 const testBrain = (brain) => {
     let totalError = 0;
     let totalSteps = 0;
-    for (let i = 0; i < TESTS_TO_RUN; i++) {
-        const value = sampleInput();
+    for (const value of inputs) {
         totalError += error(f(value), fakeF(value, brain));
         totalSteps += brain.lastRunSteps;
     }
-    brain.totalError = (brain.totalError || 0) + totalError;
-    brain.totalSteps = (brain.totalSteps || 0) + totalSteps;
-    brain.totalRuns = (brain.totalRuns || 0) + TESTS_TO_RUN;
-    brain.targetError = brain.totalError / brain.totalRuns;
-    brain.averageSteps = brain.totalSteps / brain.totalRuns;
+    brain.targetError = totalError / inputs.length;
+    brain.averageSteps = totalSteps / inputs.length;
     brain.sizePenalty =
         SIZE_PENALTY * (brain.sizes.INSTRUCTIONS + brain.sizes.DATASIZE);
     brain.stepPenalty = STEP_PENALTY * brain.averageSteps;
-    brain.score = brain.targetError + brain.sizePenalty + brain.stepPenalty;
+    brain.score =
+        brain.targetError +
+        (brain.targetError < PENALTY_GATE
+            ? brain.sizePenalty + brain.stepPenalty
+            : 0);
     return brain.score;
 };
 
@@ -132,9 +164,13 @@ const runEntireTest = async (initialRates) => {
     });
     let run = 0;
     console.log(
+        `Returning the best constant scores ${CONSTANT_FLOOR.toPrecision(3)}; size and step penalties count below ${PENALTY_GATE.toPrecision(3)}.`,
+    );
+    console.log(
         "Keys: r = throw the population away and restart, p = stop and play with the current best, s = show the current best, q = quit",
     );
     evolve: while (true) {
+        newInputs();
         const best = population.step();
         const t = population.generation - 1;
         if (t % 100 === 0) {

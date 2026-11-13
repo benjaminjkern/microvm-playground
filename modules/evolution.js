@@ -100,6 +100,20 @@ export const selectSurvivors = (sorted, count, worstSurvival) => {
     return survivors.sort((a, b) => a.score - b.score);
 };
 
+/** `count` of `items`, picked at random without replacement. */
+const pick = (items, count) => {
+    const rest = [...items];
+    const picked = [];
+    while (picked.length < count && rest.length > 0)
+        picked.push(rest.splice(Math.floor(Math.random() * rest.length), 1)[0]);
+    return picked;
+};
+
+/** A copy of `items` in random order. */
+const shuffle = (items) => pick(items, items.length);
+
+const random = (items) => items[Math.floor(Math.random() * items.length)];
+
 /**
  * Create a population.
  * @param {Object} options
@@ -178,10 +192,12 @@ export const newPopulation = (options) => {
                 return population.breed(brain, crossed ? mate : undefined);
             });
 
-            const pool = survivors.concat(
-                children,
-                extras,
-                fresh(opts.randomSeeds),
+            // Shuffled before the (stable) sort so that equal scores rank in random order. Otherwise a
+            // parent always outranks a child with exactly the same score, so a child that is different
+            // but just as good can never replace its parent, and the population freezes wherever the
+            // landscape is flat. Equal scores are common when every brain is scored on the same inputs.
+            const pool = shuffle(
+                survivors.concat(children, extras, fresh(opts.randomSeeds)),
             );
             pool.forEach((brain) => {
                 brain.score = opts.score(brain);
@@ -200,17 +216,6 @@ export const newPopulation = (options) => {
     };
     return population;
 };
-
-/** `count` of `items`, picked at random without replacement. */
-const pick = (items, count) => {
-    const rest = [...items];
-    const picked = [];
-    while (picked.length < count && rest.length > 0)
-        picked.push(rest.splice(Math.floor(Math.random() * rest.length), 1)[0]);
-    return picked;
-};
-
-const random = (items) => items[Math.floor(Math.random() * items.length)];
 
 /**
  * Several populations evolved side by side: an island model. Every island is its own `newPopulation`
