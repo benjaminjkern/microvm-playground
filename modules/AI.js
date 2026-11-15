@@ -318,6 +318,27 @@ const copyInstruction = (ins) => ({
 });
 
 /**
+ * An independent copy of a brain, reset and ready to run: the same program, start data and sizes, but
+ * nothing shared, so running or resetting one never touches the other. Scores and other bookkeeping
+ * the caller may have hung on the brain are not copied.
+ * @param {Brain} brain The brain to copy
+ * @returns {Brain} The copy
+ */
+export const copyBrain = (brain) => ({
+    instructions: brain.instructions.map(copyInstruction),
+    sizes: { ...brain.sizes },
+    operations: brain.operations,
+
+    startData: [...brain.startData],
+    startOutputData: [...brain.startOutputData],
+
+    inputData: Array(brain.sizes["INPUTSIZE"]).fill(0),
+    data: [...brain.startData],
+    outputData: [...brain.startOutputData],
+    instructionPointer: 0,
+});
+
+/**
  * Rewrite every instruction argument of one kind ("INSTRUCTIONS" or "DATASIZE") through `mapIndex`,
  * then rebuild each `run` closure, since `run` captured the old arguments when the instruction was created.
  */

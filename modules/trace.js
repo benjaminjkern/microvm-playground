@@ -316,6 +316,7 @@ export const traceBrain = async (brain, options = {}) => {
         }
     } finally {
         if (ownsInput) input.close();
+        process.off("exit", restore);
         restore();
         process.stdout.write("\n");
     }

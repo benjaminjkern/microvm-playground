@@ -8,6 +8,7 @@ const {
     traceBrain,
     createInput,
     brainToString,
+    copyBrain,
 } = require("../modules/AI");
 const { newArchipelago } = require("../modules/evolution");
 
@@ -147,6 +148,14 @@ const describeIslands = (islands) =>
 const keyOf = (k) =>
     k === null ? "q" : typeof k === "string" ? k.trim() : k.str;
 
+// A private copy of a brain to play with. Evolution keeps scoring the original in the background, and
+// scoring resets and reruns it every generation, which would wreck a step-by-step trace of it.
+const snapshot = (brain) =>
+    Object.assign(copyBrain(brain), {
+        score: brain.score,
+        targetError: brain.targetError,
+    });
+
 const runEntireTest = async (initialRates) => {
     const input = await createInput();
     const population = newArchipelago({
@@ -163,56 +172,77 @@ const runEntireTest = async (initialRates) => {
         worstSurvival: WORST_SURVIVAL,
     });
     let run = 0;
+    // While playing, the tracer owns the screen (it redraws in place) and reads the keys itself, so
+    // evolution carries on without printing and the key loop is parked in its await until the trace ends.
+    let playing = false;
+    let stopped = false;
+    const status = (generation) => {
+        const best = population.best;
+        const about =
+            best.score === undefined ? "not scored yet" : describe(best);
+        return `[run ${run}, gen ${generation}] ${about}`;
+    };
+    const islandsLine = () =>
+        `  islands (error/instructions): ${describeIslands(population.islands)}`;
+
     console.log(
         `Returning the best constant scores ${CONSTANT_FLOOR.toPrecision(3)}; size and step penalties count below ${PENALTY_GATE.toPrecision(3)}.`,
     );
     console.log(
-        "Keys: r = throw the population away and restart, p = stop and play with the current best, s = show the current best, q = quit",
+        "Keys: r = throw the population away and restart, p = play with a copy of the current best while evolution carries on (q there comes back here), s = show the current best, q = quit",
     );
-    evolve: while (true) {
-        newInputs();
-        const best = population.step();
-        const t = population.generation - 1;
-        if (t % 100 === 0) {
-            console.log(`[run ${run}, gen ${t}] ${describe(best)}`);
-            console.log(
-                `  islands (error/instructions): ${describeIslands(population.islands)}`,
-            );
-        }
 
-        // Give the event loop a turn so keypresses arrive, then act on them.
-        await new Promise((resolve) => setImmediate(resolve));
-        while (input.pending()) {
+    // Evolution: one generation, then a turn of the event loop so keypresses (and the tracer) get a
+    // look in. That one turn per generation is all the latency a key ever sees.
+    const evolve = async () => {
+        while (!stopped) {
+            newInputs();
+            population.step();
+            const t = population.generation - 1;
+            if (t % 100 === 0 && !playing) {
+                console.log(status(t));
+                console.log(islandsLine());
+            }
+            await new Promise((resolve) => setImmediate(resolve));
+        }
+    };
+
+    // Keys. Playing hands the keyboard to the tracer until it quits, then reports what happened meanwhile.
+    const listen = async () => {
+        while (!stopped) {
             const key = keyOf(await input.next());
             if (key === "r") {
                 run++;
                 population.reset();
                 console.log(`Restart ${run}: fresh random population.`);
             } else if (key === "s") {
-                console.log(
-                    `[run ${run}, gen ${population.generation}] ${describe(population.best)}`,
-                );
+                console.log(status(population.generation));
                 console.log(
                     `  ${brainToString(population.best).split("\n")[0]}`,
                 );
             } else if (key === "p") {
-                break evolve;
+                const from = population.generation;
+                playing = true;
+                await traceBrain(snapshot(population.best), {
+                    target: f,
+                    error,
+                    steps: STEPS_PER_RUN,
+                    input,
+                });
+                playing = false;
+                console.log(
+                    `Back to evolving. ${population.generation - from} generations went by while you played.`,
+                );
+                console.log(status(population.generation));
+                console.log(islandsLine());
             } else if (key === "q") {
-                input.close();
-                return;
+                stopped = true;
             }
         }
-    }
-    console.log(
-        `Stopped in run ${run} after ${population.generation} generations: ${describe(population.best)}`,
-    );
-    await traceBrain(population.best, {
-        target: f,
-        error,
-        steps: STEPS_PER_RUN,
-        input,
-    });
-    input.close();
+        input.close();
+    };
+
+    await Promise.all([evolve(), listen()]);
 };
 
 const runMultipleTests = async (initialRates) => {
