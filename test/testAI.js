@@ -25,13 +25,14 @@ const TESTS_TO_RUN = 100;
 // counter: a loop of 10 instructions cut off at step 100 runs exactly 10 times, and brains evolve to
 // pad themselves with dummy instructions to tune that count instead of finishing.
 const STEPS_PER_RUN = 100;
-// Score added per instruction and per data cell, once a brain's error is below PENALTY_GATE (see
-// CONSTANT_FLOOR). Kept far below typical target error so it only decides between brains that are
-// otherwise equally good: the smaller microVM wins.
-const SIZE_PENALTY = 0.001;
-// Score added per step a run executes, averaged over the brain's runs. A run ends when the program runs
-// off its end or hits a halt.
-const STEP_PENALTY = 0.001;
+// Parsimony: what a brain is charged for its size (per instruction and per data cell) and for its running
+// time (per step a run takes, averaged over its runs), as a fraction of its own error, fading in below
+// PENALTY_GATE (see CONSTANT_FLOOR and `testBrain`). A fraction of the error rather than a fixed amount
+// keeps the error in charge however small it gets: an extra instruction is worth keeping as soon as it
+// buys a 0.1% lower error. (A fixed 0.001 per element made up 60% of the score of a brain at error 0.02,
+// so shrinking paid better than improving.)
+const SIZE_WEIGHT = 0.001;
+const STEP_WEIGHT = 0.001;
 // The population is split into islands that evolve on their own, so an island that runs into a dead end
 // (shrunk to a one-instruction constant, say) does not take the rest with it. Every MIGRATION_INTERVAL
 // generations MIGRATION_ISLANDS random islands are crossed with each other (see modules/evolution.js).
@@ -82,10 +83,14 @@ const f = (x) => Math.sin(x);
 // const f = (x) => x ** 2;
 
 // Error of the best constant output, the median of f over the range: what a brain scores by ignoring its
-// input. The size and step penalties only count once a brain's error is below half of this. Charged from
-// the start they would strip every brain that has not found a foothold yet down to a one-instruction
-// constant, because on a plateau "same output, one instruction shorter" always wins now that scores are
-// paired, and a one-instruction brain has no material left to build with.
+// input. The size and step penalties fade in below half of this, from nothing at the gate to their full
+// weight at zero error. Nothing on the plateau, because charged from the start they would strip every
+// brain that has not found a foothold yet down to a one-instruction constant: on a plateau "same output,
+// one instruction shorter" always wins now that scores are paired, and a one-instruction brain has no
+// material left to build with. Fading in rather than switching on, because a penalty that arrives in
+// full at the gate is a wall: a 32-instruction brain crossing it picked up about 0.1 of score and lost to
+// any brain parked just above the gate, which is where 8 of 10 islands were sitting after a million
+// generations on sin.
 const CONSTANT_FLOOR = (() => {
     const values = Array.from({ length: 20000 }, () => f(sampleInput())).sort(
         (a, b) => a - b,
@@ -97,6 +102,9 @@ const CONSTANT_FLOOR = (() => {
     );
 })();
 const PENALTY_GATE = CONSTANT_FLOOR / 2;
+// Added to the error before the parsimony factor is applied, so that among brains with no error at all
+// the smaller one still wins; a bare score of 0 would be a tie whatever the size.
+const ERROR_FLOOR = CONSTANT_FLOOR * 1e-6;
 
 const fakeF = (x, brain) => {
     resetBrain(brain);
@@ -120,13 +128,17 @@ const testBrain = (brain) => {
     brain.targetError = totalError / inputs.length;
     brain.averageSteps = totalSteps / inputs.length;
     brain.sizePenalty =
-        SIZE_PENALTY * (brain.sizes.INSTRUCTIONS + brain.sizes.DATASIZE);
-    brain.stepPenalty = STEP_PENALTY * brain.averageSteps;
+        SIZE_WEIGHT * (brain.sizes.INSTRUCTIONS + brain.sizes.DATASIZE);
+    brain.stepPenalty = STEP_WEIGHT * brain.averageSteps;
+    // 0 at the gate and above it, 1 at zero error. The score still always falls as the error falls, since
+    // the penalties together stay well below 1 (below 100% of the error).
+    const weight = Math.min(
+        1,
+        Math.max(0, (PENALTY_GATE - brain.targetError) / PENALTY_GATE),
+    );
     brain.score =
-        brain.targetError +
-        (brain.targetError < PENALTY_GATE
-            ? brain.sizePenalty + brain.stepPenalty
-            : 0);
+        (brain.targetError + ERROR_FLOOR) *
+        (1 + weight * (brain.sizePenalty + brain.stepPenalty));
     return brain.score;
 };
 
@@ -222,7 +234,7 @@ const runEntireTest = async (initialRates) => {
         `  islands (error/instructions): ${describeIslands(population.islands)}`;
 
     console.log(
-        `Returning the best constant scores ${CONSTANT_FLOOR.toPrecision(3)}; size and step penalties count below ${PENALTY_GATE.toPrecision(3)}.`,
+        `Returning the best constant scores ${CONSTANT_FLOOR.toPrecision(3)}; size and step penalties fade in below ${PENALTY_GATE.toPrecision(3)}.`,
     );
     if (START_FILE) console.log(`Every island starts from ${START_FILE}.`);
     console.log(

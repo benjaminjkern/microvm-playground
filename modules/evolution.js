@@ -233,8 +233,12 @@ export const newPopulation = (options) => {
  * (say a population that has shrunk to a one-instruction constant and cannot grow back) does not drag
  * the others down with it. Every `migrationInterval` generations, `migrationIslands` islands are picked
  * at random and crossed: every survivor on each of them gets an extra child by a random survivor of one
- * of the other picked islands, made the usual way (crossover, then mutation), and those children join
- * that island's pool for the generation, where they survive only if they earn it.
+ * of the other picked islands, made the usual way (crossover, then mutation), and each of them also
+ * receives a copy of every other picked island's best brain. All of these join that island's pool for
+ * the generation, where they survive only if they earn it. The copies are what let a solution spread:
+ * crossover picks every instruction and data cell from either parent at random, so a child of a good
+ * 15-instruction brain and an unrelated one keeps the program intact about once in four million tries,
+ * and without the copies a solution stayed on the island that found it.
  *
  * Same interface as a population (`generation`, `best`, `step()`, `reset()`), plus `islands`.
  * @param {Object} options Everything `newPopulation` takes, with `size` now the size of one island, plus:
@@ -262,19 +266,25 @@ export const newArchipelago = (options) => {
         newPopulation(islandOptions),
     );
 
-    /** A crossing: cross-island children for each island taking part, keyed by island. */
+    /**
+     * A crossing: what joins each taking-part island's pool this generation, keyed by island: a
+     * cross-island child for each of its survivors, and a copy of each other island's best brain.
+     */
     const crossing = () => {
         const crossed = pick(islands, migrationIslands);
         if (crossed.length < 2) return new Map();
         return new Map(
             crossed.map((island) => {
                 const others = crossed.filter((other) => other !== island);
-                return [
-                    island,
-                    island.brains.map((brain) =>
-                        island.breed(brain, random(random(others).brains)),
-                    ),
-                ];
+                const children = island.brains.map((brain) =>
+                    island.breed(brain, random(random(others).brains)),
+                );
+                const migrants = others.map((other) =>
+                    Object.assign(copyBrain(other.best), {
+                        rates: { ...other.best.rates },
+                    }),
+                );
+                return [island, children.concat(migrants)];
             }),
         );
     };

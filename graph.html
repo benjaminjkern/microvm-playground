@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Brain graph</title>
+        <style>
+            :root {
+                --bg: #ffffff;
+                --fg: #1f2328;
+                --muted: #6e7781;
+                --panel: #f6f8fa;
+                --border: #d0d7de;
+                --grid: #e6e8eb;
+                --target: #8c959f;
+                --out: #0969da;
+                --err: #cf222e;
+                --steps: #9a6700;
+                --hover: #1f2328;
+            }
+            @media (prefers-color-scheme: dark) {
+                :root {
+                    --bg: #0d1117;
+                    --fg: #e6edf3;
+                    --muted: #8b949e;
+                    --panel: #161b22;
+                    --border: #30363d;
+                    --grid: #21262d;
+                    --target: #8b949e;
+                    --out: #58a6ff;
+                    --err: #ff7b72;
+                    --steps: #d29922;
+                    --hover: #e6edf3;
+                }
+            }
+            body {
+                margin: 0;
+                padding: 16px;
+                background: var(--bg);
+                color: var(--fg);
+                font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+            }
+            h1 {
+                font-size: 18px;
+                margin: 0 0 12px;
+            }
+            .controls {
+                display: grid;
+                gap: 10px;
+                max-width: 960px;
+            }
+            label {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                color: var(--muted);
+                font-size: 12px;
+            }
+            .row {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 12px;
+                align-items: end;
+            }
+            .row label {
+                flex: 0 1 auto;
+            }
+            textarea,
+            input {
+                font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+                color: var(--fg);
+                background: var(--panel);
+                border: 1px solid var(--border);
+                border-radius: 6px;
+                padding: 6px 8px;
+                box-sizing: border-box;
+            }
+            textarea {
+                width: 100%;
+                resize: vertical;
+                white-space: pre;
+                overflow-x: auto;
+            }
+            input[type="number"] {
+                width: 7em;
+            }
+            #target {
+                width: 20em;
+            }
+            input[type="file"] {
+                padding: 4px;
+                font-family: inherit;
+            }
+            #status {
+                min-height: 1.4em;
+                color: var(--muted);
+            }
+            #status.error {
+                color: var(--err);
+            }
+            svg {
+                display: block;
+                width: 100%;
+                max-width: 960px;
+                height: auto;
+                margin-top: 8px;
+                border: 1px solid var(--border);
+                border-radius: 6px;
+                background: var(--panel);
+            }
+            svg text {
+                font: 11px system-ui, sans-serif;
+                fill: var(--muted);
+            }
+            .grid line {
+                stroke: var(--grid);
+            }
+            .grid .zero {
+                stroke: var(--border);
+            }
+            .curves path {
+                fill: none;
+                stroke-width: 1.6;
+                stroke-linejoin: round;
+            }
+            .target {
+                stroke: var(--target);
+            }
+            .out {
+                stroke: var(--out);
+                stroke-width: 2;
+            }
+            .err {
+                stroke: var(--err);
+            }
+            .steps {
+                stroke: var(--steps);
+                stroke-dasharray: 3 3;
+            }
+            .failed {
+                stroke: var(--err);
+                stroke-width: 1;
+            }
+            .labels text {
+                stroke: none;
+                font-weight: 600;
+            }
+            .labels .target {
+                fill: var(--target);
+            }
+            .labels .out {
+                fill: var(--out);
+            }
+            .labels .err,
+            .labels .failed,
+            .grid text.err {
+                fill: var(--err);
+            }
+            .labels .steps,
+            .grid text.steps {
+                fill: var(--steps);
+            }
+            .hover line {
+                stroke: var(--hover);
+                stroke-dasharray: 2 2;
+            }
+            .hover circle {
+                fill: var(--out);
+            }
+            .hover rect {
+                fill: var(--bg);
+                stroke: var(--border);
+            }
+            .hover text {
+                fill: var(--fg);
+                font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+            }
+            .catcher {
+                fill: transparent;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Brain graph</h1>
+        <div class="controls">
+            <label>
+                Brain (the three lines brainToString prints; # lines are notes)
+                <textarea id="brain" rows="5" spellcheck="false"></textarea>
+            </label>
+            <div class="row">
+                <label>
+                    Target f(x) =
+                    <input id="target" value="Math.sin(x)" spellcheck="false" />
+                </label>
+                <label>
+                    From
+                    <input id="min" type="number" value="-10" step="any" />
+                </label>
+                <label>
+                    To
+                    <input id="max" type="number" value="10" step="any" />
+                </label>
+                <label>
+                    Samples
+                    <input id="samples" type="number" value="400" min="2" />
+                </label>
+                <label>
+                    Step cap
+                    <input id="steps" type="number" value="100" min="1" />
+                </label>
+                <label>
+                    Load a saved brain
+                    <input id="file" type="file" accept=".txt" />
+                </label>
+            </div>
+            <div id="status">Loading…</div>
+        </div>
+        <svg id="graph" viewBox="0 0 960 560" role="img" aria-label="Brain output against the target"></svg>
+        <script type="module" src="graph.js"></script>
+    </body>
+</html>
