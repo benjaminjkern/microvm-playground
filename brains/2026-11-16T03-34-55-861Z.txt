@@ -1,0 +1,5 @@
+# Saved by test/testAI.js at generation 134 on 2026-11-16T03:34:55.861Z.
+# Target (x) => Math.sin(x) on ±10: 0.0348844 (error 0.0336095, 17 instructions, 7 data, 18.57 steps, rates d0.010 i0.026 s0.039 r0.076).
+readInput 0 6,sub 3 6 5,max 6 5 6,sub 6 3 2,jgz 1 10,jgz 0 16,max 6 4 6,sub 6 0 1,jgz 3 2,jump 2,sub 2 3 6,mult 4 2 5,jgz 2 6,mult 0 5 4,readInput 0 1,min 4 0 6,writeOutput 6 0
+0.9360500809152008,1.251891320829408,-0.09261236513683099,3.143575858195704,-0.9548912848854042,-1.118230127723396,1.0320302611517758
+6.57852532285418

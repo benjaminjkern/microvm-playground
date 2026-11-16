@@ -14,6 +14,13 @@ const {
     copyBrain,
 } = require("../modules/AI");
 const { newArchipelago } = require("../modules/evolution");
+const { parseBrainFile } = require("../modules/brainFile");
+const { startServer } = require("./server");
+
+// The frontend (web/) is served at http://localhost:PORT/ for as long as this runs: the current best and
+// live statistics, the saved brains, and a playground to step through and edit them. If the port is
+// taken, the next few are tried.
+const PORT = Number(process.env.PORT) || 8000;
 
 // Inputs every brain is scored on in a generation. All brains in a generation see the same inputs (see
 // `newInputs`), so two scores differ only because the brains differ, not because one drew easier inputs.
@@ -167,11 +174,7 @@ const keyOf = (k) =>
 // so evolution carries on from where that brain was left. Without one, every island starts random.
 const START_FILE = process.argv[2];
 const START = START_FILE
-    ? [
-          newBrainFromString(fs.readFileSync(START_FILE, "utf8"), {}, {
-              INPUTSIZE: 1,
-          }),
-      ]
+    ? [parseBrainFile(fs.readFileSync(START_FILE, "utf8")).brain]
     : undefined;
 
 const about = (brain) =>
@@ -198,6 +201,56 @@ const saveBrain = (brain, generation) => {
     );
     return path.relative(process.cwd(), file);
 };
+
+// The best error over the generations, for the frontend's chart, kept to a few hundred points however
+// long the run: each point is [generation, mean error over the stretch of generations ending there], and
+// when the list fills up neighbouring points are merged and the stretch doubles.
+const newHistory = (limit = 400) => {
+    let points = [];
+    let stretch = 1;
+    let sum = 0;
+    let count = 0;
+    return {
+        get points() {
+            return points;
+        },
+        add(generation, value) {
+            sum += value;
+            if (++count < stretch) return;
+            points.push([generation, sum / count]);
+            sum = 0;
+            count = 0;
+            if (points.length < limit) return;
+            const merged = [];
+            for (let i = 1; i < points.length; i += 2)
+                merged.push([
+                    points[i][0],
+                    (points[i - 1][1] + points[i][1]) / 2,
+                ]);
+            points = merged;
+            stretch *= 2;
+        },
+        clear() {
+            points = [];
+            stretch = 1;
+            sum = 0;
+            count = 0;
+        },
+    };
+};
+
+// What the frontend is told about a brain, or null before it has been scored.
+const brainStats = (brain) =>
+    brain.score === undefined
+        ? null
+        : {
+              score: brain.score,
+              error: brain.targetError,
+              instructions: brain.sizes.INSTRUCTIONS,
+              data: brain.sizes.DATASIZE,
+              steps: brain.averageSteps,
+              rates: brain.rates,
+          };
 
 // A private copy of a brain to play with. Evolution keeps scoring the original in the background, and
 // scoring resets and reruns it every generation, which would wreck a step-by-step trace of it.
@@ -228,6 +281,51 @@ const runEntireTest = async (initialRates) => {
     // evolution carries on without printing and the key loop is parked in its await until the trace ends.
     let playing = false;
     let stopped = false;
+    const history = newHistory();
+    // Generations per second, measured about once a second.
+    const speed = { rate: 0, since: Date.now(), generation: 0 };
+
+    const restart = () => {
+        run++;
+        population.reset();
+        history.clear();
+        Object.assign(speed, { since: Date.now(), generation: 0 });
+    };
+
+    // The run as the frontend sees it: sent on request and pushed twice a second (see test/server.js).
+    const webState = () => {
+        const best = population.best;
+        const stats = brainStats(best);
+        return {
+            run,
+            generation: population.generation,
+            generationsPerSecond: speed.rate,
+            target: f.toString(),
+            range: RANGE,
+            stepsPerRun: STEPS_PER_RUN,
+            testsPerGeneration: TESTS_TO_RUN,
+            constantFloor: CONSTANT_FLOOR,
+            penaltyGate: PENALTY_GATE,
+            startFile: START_FILE ?? null,
+            best: stats && { ...stats, brain: brainToString(best) },
+            islands: population.islands.map((island) => brainStats(island.best)),
+            history: history.points,
+        };
+    };
+    const server = await startServer({
+        port: PORT,
+        root: path.join(__dirname, ".."),
+        brainsDir: path.join(__dirname, "..", "brains"),
+        getState: webState,
+        checkBrain: parseBrainFile,
+        reset: () => {
+            restart();
+            if (!playing)
+                console.log(`Restart ${run} (from the frontend): fresh population.`);
+        },
+        saveBest: () =>
+            path.basename(saveBrain(population.best, population.generation)),
+    });
     const status = (generation) =>
         `[run ${run}, gen ${generation}] ${about(population.best)}`;
     const islandsLine = () =>
@@ -238,6 +336,11 @@ const runEntireTest = async (initialRates) => {
     );
     if (START_FILE) console.log(`Every island starts from ${START_FILE}.`);
     console.log(
+        server
+            ? `Frontend: ${server.url}`
+            : `No free port from ${PORT} up, so no frontend this time.`,
+    );
+    console.log(
         "Keys: r = throw the population away and restart, p = play with a copy of the current best while evolution carries on (q there comes back here), s = show the current best, w = write it to brains/, q = quit",
     );
 
@@ -247,6 +350,20 @@ const runEntireTest = async (initialRates) => {
         while (!stopped) {
             newInputs();
             population.step();
+            history.add(
+                population.generation,
+                Math.min(population.best.targetError, 2 * CONSTANT_FLOOR),
+            );
+            const now = Date.now();
+            if (now - speed.since >= 1000) {
+                speed.rate =
+                    ((population.generation - speed.generation) * 1000) /
+                    (now - speed.since);
+                Object.assign(speed, {
+                    since: now,
+                    generation: population.generation,
+                });
+            }
             const t = population.generation - 1;
             if (t % 100 === 0 && !playing) {
                 console.log(status(t));
@@ -259,11 +376,19 @@ const runEntireTest = async (initialRates) => {
     // Keys. Playing hands the keyboard to the tracer until it quits, then reports what happened meanwhile.
     const listen = async () => {
         while (!stopped) {
-            const key = keyOf(await input.next());
+            const pressed = await input.next();
+            if (pressed === null && !input.tty) {
+                // stdin ran out (started in the background, or fed by a script): there is nothing left
+                // to listen to, but the run and the frontend carry on until the process is stopped.
+                console.log(
+                    `Input closed. Still evolving${server ? ` and serving ${server.url}` : ""}; stop the process to end it.`,
+                );
+                break;
+            }
+            const key = keyOf(pressed);
             if (key === "r") {
-                run++;
-                population.reset();
-                console.log(`Restart ${run}: fresh random population.`);
+                restart();
+                console.log(`Restart ${run}: fresh population.`);
             } else if (key === "s") {
                 console.log(status(population.generation));
                 console.log(
@@ -296,6 +421,7 @@ const runEntireTest = async (initialRates) => {
             }
         }
         input.close();
+        if (stopped) server?.close();
     };
 
     await Promise.all([evolve(), listen()]);

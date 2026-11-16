@@ -1,26 +1,14 @@
-import { runBrain, resetBrain } from "./AI.js";
+import { formatValue as fmt, instructionText, nextReads, newStepper } from "./stepper.js";
 
 /**
  * Interactive terminal tracer for a brain (Node only; safe to import in the browser, never call it there).
  * Draws the program, data, input and output once and redraws them in place as the brain executes,
- * with a moving instruction pointer and highlighted reads/writes.
+ * with a moving instruction pointer and highlighted reads/writes. The stepping itself is in stepper.js,
+ * shared with the web playground.
  *
  * Keys: Enter/Space = step, 1-9 = n steps, r = run (any key pauses), a = restart same input,
  * n = new input, q/Esc/Ctrl-C = quit. When stdin is piped, one command per line.
  */
-
-// Which argument positions each operation reads from data (used to highlight operands).
-const DATA_READS = {
-    add: [0, 1], sub: [0, 1], mult: [0, 1], div: [0, 1], exp: [0, 1],
-    min: [0, 1], max: [0, 1],
-    neg: [0], sqrt: [0], sin: [0], cos: [0], log: [0], floor: [0], ceil: [0],
-    move: [0], jgz: [0], writeOutput: [0],
-};
-
-const fmt = (v) =>
-    typeof v === "number" && Number.isFinite(v)
-        ? String(+v.toPrecision(6))
-        : String(v);
 
 const ANSI = {
     reset: "\x1b[0m", inverse: "\x1b[7m", green: "\x1b[1;32m", cyan: "\x1b[36m",
@@ -28,7 +16,6 @@ const ANSI = {
     clearLine: "\x1b[K", hideCursor: "\x1b[?25l", showCursor: "\x1b[?25h",
 };
 const paint = (text, color) => (color ? color + text + ANSI.reset : text);
-const instructionText = (ins) => [ins.opName, ...ins.args].join(" ");
 
 // Lay out {text, color} cells column-major (read down, then across) in fixed-width columns.
 const columnize = (cells, colWidth, termWidth) => {
@@ -54,11 +41,7 @@ const renderTrace = (view) => {
     const { brain, opts, x, step, finished, lastIp, written, event, status, promptLine } = view;
     const width = process.stdout.columns || 100;
     const nextIp = brain.instructionPointer;
-    const next = brain.instructions[nextIp];
-    const readIdx = new Set(
-        finished ? [] : (DATA_READS[next.opName] || []).map((k) => next.args[k]),
-    );
-    const readsInput = !finished && next.opName === "readInput" ? next.args[0] : -1;
+    const { data: readIdx, input: readsInput } = nextReads(view);
     const lines = [];
 
     lines.push(
@@ -224,62 +207,8 @@ export const traceBrain = async (brain, options = {}) => {
     const HELP = "[Enter/Space] step   [1-9] n steps   [r] run   [a] restart   [n] new input   [q] quit";
     const HELP_DONE = "[a] restart   [n] new input   [q] quit";
 
-    resetBrain(brain);
-    const view = {
-        brain, opts, x: undefined, step: 0, finished: false, lastIp: null,
-        written: new Set(), event: "", status: "", promptLine: "",
-    };
-
-    const startRun = (x) => {
-        resetBrain(brain);
-        brain.inputData[opts.inputIndex] = x;
-        Object.assign(view, {
-            x, step: 0, finished: false, lastIp: null, written: new Set(),
-            event: "", status: "fresh run: brain reset, input loaded",
-        });
-    };
-
-    const doStep = () => {
-        const ip = brain.instructionPointer;
-        const ins = brain.instructions[ip];
-        const before = { data: [...brain.data], out: [...brain.outputData] };
-        runBrain(brain, 1, opts.wrap);
-        view.step++;
-        view.lastIp = ip;
-        view.written = new Set();
-        const changes = [];
-        brain.data.forEach((v, i) => {
-            if (!Object.is(v, before.data[i])) {
-                view.written.add(`d${i}`);
-                changes.push(`data[${i}] = ${fmt(v)}`);
-            }
-        });
-        brain.outputData.forEach((v, i) => {
-            if (!Object.is(v, before.out[i])) {
-                view.written.add(`o${i}`);
-                changes.push(`output[${i}] = ${fmt(v)}`);
-            }
-        });
-        const length = brain.instructions.length;
-        const nextInLine = opts.wrap ? (ip + 1) % length : ip + 1;
-        const ended = !opts.wrap && brain.instructionPointer >= length;
-        if (brain.instructionPointer !== nextInLine) changes.push(`jump -> ${brain.instructionPointer}`);
-        else if (ins.opName === "jgz") changes.push("not taken");
-        if (ins.opName === "halt") changes.push("HALT");
-        else if (ended) changes.push("END OF PROGRAM");
-        view.event = `step ${view.step}: ${ip}: ${instructionText(ins)}   ${changes.join(", ") || "(no change)"}`;
-        view.status = "";
-        if (ins.opName === "halt" || ended || view.step >= opts.steps) {
-            view.finished = true;
-            const out = brain.outputData[opts.outputIndex];
-            let summary = `finished after ${view.step} step(s): output[${opts.outputIndex}] = ${fmt(out)}`;
-            if (opts.target) {
-                const expected = opts.target(view.x);
-                summary += `, expected ${fmt(expected)}, error ${fmt(opts.error(expected, out))}`;
-            }
-            view.status = summary;
-        }
-    };
+    const stepper = newStepper(brain, opts);
+    const { view, start: startRun, step: doStep } = stepper;
 
     try {
         input: while (true) {

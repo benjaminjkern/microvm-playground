@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>MicroVM lab</title>
+        <link rel="stylesheet" href="style.css" />
+    </head>
+    <body>
+        <header>
+            <h1>MicroVM lab</h1>
+            <nav role="tablist" aria-label="Which brain to show">
+                <button type="button" role="tab" id="tab-live" aria-selected="false">Live best</button>
+                <button type="button" role="tab" id="tab-loaded" aria-selected="false">Loaded brain</button>
+            </nav>
+            <span id="connection" class="off">connecting…</span>
+        </header>
+
+        <main>
+            <section id="live-panel" hidden>
+                <div class="stats">
+                    <div class="stat">
+                        <span class="label">Generation</span>
+                        <span class="value" id="stat-generation">–</span>
+                        <span class="sub" id="stat-run"></span>
+                    </div>
+                    <div class="stat">
+                        <span class="label">Generations per second</span>
+                        <span class="value" id="stat-speed">–</span>
+                    </div>
+                    <div class="stat wide">
+                        <span class="label">Best error</span>
+                        <span class="value" id="stat-error">–</span>
+                        <span class="sub" id="stat-score"></span>
+                    </div>
+                    <div class="stat">
+                        <span class="label">Instructions + data cells</span>
+                        <span class="value" id="stat-size">–</span>
+                    </div>
+                    <div class="stat">
+                        <span class="label">Steps per run</span>
+                        <span class="value" id="stat-steps">–</span>
+                    </div>
+                </div>
+                <div class="rates">
+                    <span class="label">The best brain's mutation rates</span>
+                    <span id="stat-rates">–</span>
+                </div>
+                <div class="islands">
+                    <span class="label">Islands, each one's best as error/instructions</span>
+                    <div id="islands"></div>
+                </div>
+                <svg id="history" class="chart" viewBox="0 0 960 170" role="img" aria-label="Best error by generation"></svg>
+                <div class="row">
+                    <button type="button" id="edit-copy" disabled>Edit a copy</button>
+                    <button type="button" id="save-best" disabled>Save the best to brains/</button>
+                    <button type="button" id="restart" disabled>Restart the population</button>
+                    <button type="button" id="follow" hidden>Follow the live best again</button>
+                    <span id="live-status" class="note"></span>
+                </div>
+                <div id="pin-note" class="note"></div>
+                <pre id="live-brain"></pre>
+            </section>
+
+            <section id="loaded-panel" hidden>
+                <div class="row">
+                    <label>
+                        Saved brains
+                        <select id="saved" disabled></select>
+                    </label>
+                    <label>
+                        Open a file
+                        <input id="file" type="file" accept=".txt" />
+                    </label>
+                    <label>
+                        Name
+                        <input id="name" type="text" spellcheck="false" placeholder="my-brain.txt" />
+                    </label>
+                    <button type="button" id="save">Save to brains/</button>
+                    <button type="button" id="download">Download</button>
+                    <button type="button" id="undo" disabled>Undo</button>
+                    <span id="dirty" hidden>● unsaved changes</span>
+                </div>
+                <label>
+                    The brain as text: instructions, start data, start output, with # lines for notes. Edit it here or in the playground below.
+                    <textarea id="brain" rows="6" spellcheck="false"></textarea>
+                </label>
+                <div id="loaded-status" class="note"></div>
+            </section>
+
+            <section>
+                <div class="row">
+                    <label>
+                        Target f(x) =
+                        <input id="target" type="text" value="Math.sin(x)" spellcheck="false" />
+                    </label>
+                    <label>
+                        From
+                        <input id="min" type="number" value="-10" step="any" />
+                    </label>
+                    <label>
+                        To
+                        <input id="max" type="number" value="10" step="any" />
+                    </label>
+                    <label>
+                        Samples
+                        <input id="samples" type="number" value="400" min="2" />
+                    </label>
+                    <label>
+                        Step cap
+                        <input id="steps" type="number" value="100" min="1" />
+                    </label>
+                </div>
+                <div id="status" class="note"></div>
+                <svg id="graph" class="chart" viewBox="0 0 960 560" role="img" aria-label="Brain output against the target"></svg>
+            </section>
+
+            <section>
+                <h2>Playground</h2>
+                <div id="playground"></div>
+            </section>
+        </main>
+        <script type="module" src="app.js"></script>
+    </body>
+</html>
