@@ -1,0 +1,19 @@
+# sin(x) on -10..10, found by test/testAI.js after 1,000,000 generations (10 islands of 20) on 2026-11-14.
+# Reconstructed from the trace screen, so the data cells are rounded to 6 significant figures.
+# Mean absolute error 0.031 over the range (returning 0 scores 0.637). 11-25 steps, never hits the step cap.
+#
+# How it works. Data: d0 = 0.9619 (clip level, and an always-true flag for "jgz 0 14"), d1 = 0.9514 (a
+# first-pass flag, later "reduced value - 0.96"), d2 scratch, d3 = pi, d4 = -0.948 (slope and the negative
+# clip level), d5 and d6 scratch.
+#   1. Fold. u = max(x, pi - x). Since sin(pi - x) = sin(x), one max puts every input at u >= pi/2, which also
+#      takes care of negative x.
+#   2. Range reduction. The loop 9 10 11 6 7 8 2 3 4 subtracts 2 pi from u on every pass (two subtractions
+#      of pi) and goes round again while the reduced value is still above 0.96 (the test on d1 at 4).
+#   3. One period is a clipped triangle wave: up at slope 0.912 to a plateau of 0.962, down at slope 0.948
+#      to a floor of -0.948, then up again at slope 1. The error sits at the shoulders (up to 0.14 near
+#      45 and 135 degrees) and at the peaks, which are clipped at 0.962 and -0.948 instead of 1 and -1.
+#
+# Load it with: node test/testAI.js brains/sin-1M-generations.txt
+readInput 0 6,sub 3 6 5,max 6 5 6,sub 6 3 2,jgz 1 9,jgz 0 14,max 6 4 6,sub 6 0 1,jump 2,sub 2 3 6,mult 4 2 5,jgz 2 6,mult 0 5 4,min 4 0 6,writeOutput 6 0
+0.961908,0.951441,0.0207181,3.14153,-0.948026,-0.98975,1.02476
+6.38484

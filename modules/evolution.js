@@ -1,4 +1,4 @@
-import { mutateBrain, crossoverBrains } from "./AI.js";
+import { mutateBrain, crossoverBrains, copyBrain } from "./AI.js";
 import { randomGaussian } from "./utils.js";
 
 /**
@@ -125,6 +125,8 @@ const random = (items) => items[Math.floor(Math.random() * items.length)];
  * @param {Number} [options.crossoverRate=0.5] Fraction of children that start as a cross with a random other survivor.
  * @param {Number} [options.randomSeeds=1] Fresh random brains added to every generation's pool.
  * @param {Number} [options.worstSurvival=0.03] Survival odds of the worst brain in the pool; the best always survives.
+ * @param {Brain[]} [options.start] Brains to start from instead of random ones: the first generation, and
+ *   every reset, is made of copies of these, cycled to fill `size`. Newcomers are still random.
  * @returns {Population} with `brains` (best first once scored), `generation`, `best`, `step()` and `reset()`.
  */
 export const newPopulation = (options) => {
@@ -144,10 +146,18 @@ export const newPopulation = (options) => {
         Array.from({ length: count }, () =>
             Object.assign(opts.newBrain(), { rates: { ...opts.rates } }),
         );
+    const starting = () =>
+        opts.start?.length
+            ? Array.from({ length: opts.size }, (_, i) =>
+                  Object.assign(copyBrain(opts.start[i % opts.start.length]), {
+                      rates: { ...opts.rates },
+                  }),
+              )
+            : fresh(opts.size);
 
     const population = {
         options: opts,
-        brains: fresh(opts.size),
+        brains: starting(),
         generation: 0,
 
         /** The best brain, once at least one generation has been scored. */
@@ -208,9 +218,9 @@ export const newPopulation = (options) => {
             return population.best;
         },
 
-        /** Throw the population away and start again from random brains. */
+        /** Throw the population away and start again, from random brains or the `start` brains. */
         reset() {
-            population.brains = fresh(opts.size);
+            population.brains = starting();
             population.generation = 0;
         },
     };

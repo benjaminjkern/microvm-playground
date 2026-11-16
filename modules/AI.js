@@ -226,7 +226,8 @@ const randomInstruction = (sizes, operations) => {
 };
 
 /**
- * Rebuild a brain from the output of `brainToString`.
+ * Rebuild a brain from the output of `brainToString`. Blank lines and lines starting with # are ignored,
+ * so a saved brain can carry notes about itself.
  * The string carries no input size, so INPUTSIZE defaults to `DEFAULT_SIZES.INPUTSIZE` unless given in `sizes`.
  * @param {String} brainString Output of `brainToString`.
  * @param {Object} operations Optional operations to add to or overwrite the defaults.
@@ -239,6 +240,8 @@ export const newBrainFromString = (
 ) => {
     const [instructions, startData, startOutputData] = brainString
         .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line && !line.startsWith("#"))
         .map((line) => line.split(","));
 
     const newSizes = {

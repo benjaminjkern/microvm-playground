@@ -1,5 +1,8 @@
+const fs = require("fs");
+const path = require("path");
 const {
     newBrain,
+    newBrainFromString,
     printBrainInstructions,
     runBrain,
     mutateBrain,
@@ -148,6 +151,42 @@ const describeIslands = (islands) =>
 const keyOf = (k) =>
     k === null ? "q" : typeof k === "string" ? k.trim() : k.str;
 
+// A saved brain to start from (`node test/testAI.js brains/some.txt`): every island begins as copies of it,
+// so evolution carries on from where that brain was left. Without one, every island starts random.
+const START_FILE = process.argv[2];
+const START = START_FILE
+    ? [
+          newBrainFromString(fs.readFileSync(START_FILE, "utf8"), {}, {
+              INPUTSIZE: 1,
+          }),
+      ]
+    : undefined;
+
+const about = (brain) =>
+    brain.score === undefined ? "not scored yet" : describe(brain);
+
+// Writes a brain to brains/, with a note on how it was scored, in the form `newBrainFromString` reads
+// (and so `node test/testAI.js <file>` can start from). Returns the file's path.
+const saveBrain = (brain, generation) => {
+    const dir = path.join(__dirname, "..", "brains");
+    fs.mkdirSync(dir, { recursive: true });
+    const now = new Date();
+    const file = path.join(
+        dir,
+        `${now.toISOString().replace(/[:.]/g, "-")}.txt`,
+    );
+    fs.writeFileSync(
+        file,
+        [
+            `# Saved by test/testAI.js at generation ${generation} on ${now.toISOString()}.`,
+            `# Target ${f.toString()} on ±${RANGE}: ${about(brain)}.`,
+            brainToString(brain),
+            "",
+        ].join("\n"),
+    );
+    return path.relative(process.cwd(), file);
+};
+
 // A private copy of a brain to play with. Evolution keeps scoring the original in the background, and
 // scoring resets and reruns it every generation, which would wreck a step-by-step trace of it.
 const snapshot = (brain) =>
@@ -170,26 +209,24 @@ const runEntireTest = async (initialRates) => {
         crossoverRate: CROSSOVER_RATE,
         randomSeeds: RANDOM_SEEDS_PER_GENERATION,
         worstSurvival: WORST_SURVIVAL,
+        start: START,
     });
     let run = 0;
     // While playing, the tracer owns the screen (it redraws in place) and reads the keys itself, so
     // evolution carries on without printing and the key loop is parked in its await until the trace ends.
     let playing = false;
     let stopped = false;
-    const status = (generation) => {
-        const best = population.best;
-        const about =
-            best.score === undefined ? "not scored yet" : describe(best);
-        return `[run ${run}, gen ${generation}] ${about}`;
-    };
+    const status = (generation) =>
+        `[run ${run}, gen ${generation}] ${about(population.best)}`;
     const islandsLine = () =>
         `  islands (error/instructions): ${describeIslands(population.islands)}`;
 
     console.log(
         `Returning the best constant scores ${CONSTANT_FLOOR.toPrecision(3)}; size and step penalties count below ${PENALTY_GATE.toPrecision(3)}.`,
     );
+    if (START_FILE) console.log(`Every island starts from ${START_FILE}.`);
     console.log(
-        "Keys: r = throw the population away and restart, p = play with a copy of the current best while evolution carries on (q there comes back here), s = show the current best, q = quit",
+        "Keys: r = throw the population away and restart, p = play with a copy of the current best while evolution carries on (q there comes back here), s = show the current best, w = write it to brains/, q = quit",
     );
 
     // Evolution: one generation, then a turn of the event loop so keypresses (and the tracer) get a
@@ -218,7 +255,14 @@ const runEntireTest = async (initialRates) => {
             } else if (key === "s") {
                 console.log(status(population.generation));
                 console.log(
-                    `  ${brainToString(population.best).split("\n")[0]}`,
+                    brainToString(population.best)
+                        .split("\n")
+                        .map((line) => `  ${line}`)
+                        .join("\n"),
+                );
+            } else if (key === "w") {
+                console.log(
+                    `Wrote the current best to ${saveBrain(population.best, population.generation)}`,
                 );
             } else if (key === "p") {
                 const from = population.generation;
